@@ -3,6 +3,7 @@ package com.rag.application.document;
 import com.rag.domain.event.DocumentEvent;
 import com.rag.infrastructure.mq.DocumentEventProducer;
 import com.rag.infrastructure.storage.MinioStorage;
+import com.rag.util.TraceLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,32 +26,54 @@ public class DocumentApplicationService {
         this.eventProducer = eventProducer;
     }
 
-    public DocumentUploadResult upload(MultipartFile file, String kbId) {
+    public DocumentUploadResult upload(MultipartFile file, String kbId, String chunkStrategy, Map<String, Object> chunkParams) {
+        // 生成 traceId 用于全链路追踪
+        String traceId = UUID.randomUUID().toString();
+
         try {
             String documentId = UUID.randomUUID().toString();
             String fileName = file.getOriginalFilename();
             String fileType = file.getContentType();
 
-            // Upload to MinIO
-            String objectName = kbId + "/" + documentId + "/" + fileName;
-            minioStorage.upload(objectName, file.getBytes(), fileType);
+            TraceLogger tracer = TraceLogger.get(DocumentApplicationService.class, traceId, documentId);
 
-            // Send event
+            tracer.step("1. UPLOAD_START");
+            tracer.info("开始上传文件: fileName=%s, size=%d, kbId=%s, chunkStrategy=%s",
+                    fileName, file.getSize(), kbId, chunkStrategy);
+
+            // Upload to MinIO using stream
+            String objectName = kbId + "/" + documentId + "/" + fileName;
+
+            tracer.info("上传到 MinIO: path=%s", objectName);
+            minioStorage.upload(objectName, file);
+
+            tracer.stepComplete("1. UPLOAD_MINIO", objectName);
+
+            // Prepare metadata with chunk strategy
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("fileSize", file.getSize());
+            metadata.put("chunkStrategy", chunkStrategy);
+            metadata.put("chunkParams", chunkParams);
 
+            // 创建事件，包含 traceId
             DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, metadata);
+            event.setTraceId(traceId);
+
+            tracer.step("2. SEND_KAFKA_MESSAGE");
+            tracer.info("发送 Kafka 消息: topic=document-upload, eventType=%s", event.getEventType());
+
             eventProducer.sendUploaded(event);
 
-            log.info("Document uploaded: {}", documentId);
+            tracer.stepComplete("2. KAFKA_SENT", "document-upload");
+            tracer.info("文档上传完成: documentId=%s, traceId=%s", documentId, traceId);
 
-            return new DocumentUploadResult(documentId, fileName, "PENDING");
+            return new DocumentUploadResult(documentId, fileName, "PENDING", traceId);
 
         } catch (Exception e) {
-            log.error("Upload failed", e);
+            log.error("[%s] Upload failed: %s".formatted(traceId, e.getMessage()), e);
             throw new RuntimeException("Upload failed: " + e.getMessage(), e);
         }
     }
 
-    public record DocumentUploadResult(String documentId, String fileName, String status) {}
+    public record DocumentUploadResult(String documentId, String fileName, String status, String traceId) {}
 }

@@ -1,13 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ChatView from './views/ChatView.vue'
-import UploadView from './views/UploadView.vue'
-import RetrieveView from './views/RetrieveView.vue'
+import MainView from './views/MainView.vue'
 
 const routes = [
-  { path: '/', redirect: '/chat' },
-  { path: '/chat', name: 'chat', component: ChatView },
-  { path: '/upload', name: 'upload', component: UploadView },
-  { path: '/retrieve', name: 'retrieve', component: RetrieveView }
+  { path: '/', name: 'home', component: MainView },
+  { path: '/chat', name: 'chat', component: MainView }
 ]
 
 const router = createRouter({

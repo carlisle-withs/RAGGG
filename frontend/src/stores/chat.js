@@ -7,25 +7,26 @@ export const useChatStore = defineStore('chat', () => {
   const conversationId = ref(null)
   const sending = ref(false)
 
+  const addMessage = (role, content, sources = null) => {
+    messages.value.push({
+      role,
+      content,
+      sources,
+      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    })
+  }
+
   const sendMessage = async (content) => {
     if (!content.trim() || sending.value) return null
 
     sending.value = true
 
     // Add user message
-    messages.value.push({
-      role: 'user',
-      content,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    })
+    addMessage('user', content)
 
     // Add assistant placeholder
     const placeholderIdx = messages.value.length
-    messages.value.push({
-      role: 'assistant',
-      content: '思考中...',
-      time: ''
-    })
+    addMessage('assistant', '思考中...')
 
     try {
       const res = await chat({
@@ -38,25 +39,12 @@ export const useChatStore = defineStore('chat', () => {
       const data = res.data
       conversationId.value = data.conversationId
 
-      // Build response HTML
-      let responseHtml = data.message || '抱歉，没有得到回复'
-
-      if (data.sources && data.sources.length > 0) {
-        responseHtml += '<div class="sources"><div class="source-title">参考文档：</div>'
-        data.sources.forEach(s => {
-          const snippet = (s.content || '').substring(0, 200)
-          responseHtml += `<div class="source-item">[${(s.score || 0).toFixed(2)}] ${snippet}...</div>`
-        })
-        responseHtml += '</div>'
-      }
-
-      messages.value[placeholderIdx].content = responseHtml
-      messages.value[placeholderIdx].time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      messages.value[placeholderIdx].content = data.message || '抱歉，没有得到回复'
+      messages.value[placeholderIdx].sources = data.sources || []
 
       return data
     } catch (err) {
       messages.value[placeholderIdx].content = '抱歉，发生了错误：' + (err.message || '未知错误')
-      messages.value[placeholderIdx].time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       return null
     } finally {
       sending.value = false
@@ -68,5 +56,5 @@ export const useChatStore = defineStore('chat', () => {
     conversationId.value = null
   }
 
-  return { messages, conversationId, sending, sendMessage, clearMessages }
+  return { messages, conversationId, sending, addMessage, sendMessage, clearMessages }
 })

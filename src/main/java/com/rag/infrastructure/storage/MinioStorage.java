@@ -6,6 +6,7 @@ import io.minio.http.Method;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.PostConstruct;
 import java.io.ByteArrayInputStream;
@@ -38,6 +39,22 @@ public class MinioStorage {
             }
         } catch (Exception e) {
             log.error("Failed to initialize MinIO bucket", e);
+        }
+    }
+
+    public String upload(String objectName, MultipartFile file) {
+        try (InputStream stream = file.getInputStream()) {
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectName)
+                    .stream(stream, file.getSize(), -1)
+                    .contentType(file.getContentType())
+                    .build());
+            log.info("Uploaded: {}/{}", bucket, objectName);
+            return objectName;
+        } catch (Exception e) {
+            log.error("Failed to upload: {}", objectName, e);
+            throw new RuntimeException("Upload failed", e);
         }
     }
 

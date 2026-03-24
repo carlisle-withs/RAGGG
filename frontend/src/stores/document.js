@@ -18,7 +18,7 @@ export const useDocumentStore = defineStore('document', () => {
     })
   }
 
-  const uploadFiles = async () => {
+  const uploadFiles = async (chunkOptions = {}) => {
     const pendingFiles = files.value.filter(f => f.status === 'pending')
     if (pendingFiles.length === 0 || uploading.value) return
 
@@ -30,6 +30,27 @@ export const useDocumentStore = defineStore('document', () => {
       const formData = new FormData()
       formData.append('file', fileItem.file)
       formData.append('kbId', 'default')
+      formData.append('chunkStrategy', chunkOptions.chunkStrategy || 'fixed')
+
+      // Add chunk strategy params
+      if (chunkOptions.chunkSize) {
+        formData.append('chunkSize', chunkOptions.chunkSize)
+      }
+      if (chunkOptions.chunkOverlap) {
+        formData.append('chunkOverlap', chunkOptions.chunkOverlap)
+      }
+      if (chunkOptions.minParagraphLength) {
+        formData.append('minParagraphLength', chunkOptions.minParagraphLength)
+      }
+      if (chunkOptions.maxParagraphLength) {
+        formData.append('maxParagraphLength', chunkOptions.maxParagraphLength)
+      }
+      if (chunkOptions.maxTokensPerChunk) {
+        formData.append('maxTokensPerChunk', chunkOptions.maxTokensPerChunk)
+      }
+      if (chunkOptions.similarityThreshold) {
+        formData.append('similarityThreshold', chunkOptions.similarityThreshold)
+      }
 
       try {
         await uploadDocument(formData)

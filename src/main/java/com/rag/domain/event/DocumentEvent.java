@@ -13,6 +13,7 @@ public class DocumentEvent implements Serializable {
     }
 
     private String eventId;
+    private String traceId;
     private EventType eventType;
     private String documentId;
     private String kbId;
@@ -31,6 +32,7 @@ public class DocumentEvent implements Serializable {
                                        String fileType, String minioPath, Map<String, Object> metadata) {
         DocumentEvent event = new DocumentEvent();
         event.eventId = java.util.UUID.randomUUID().toString();
+        event.traceId = java.util.UUID.randomUUID().toString();
         event.eventType = EventType.UPLOADED;
         event.documentId = documentId;
         event.kbId = kbId;
@@ -42,6 +44,8 @@ public class DocumentEvent implements Serializable {
     }
 
     public String getEventId() { return eventId; }
+    public String getTraceId() { return traceId; }
+    public void setTraceId(String traceId) { this.traceId = traceId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
     public EventType getEventType() { return eventType; }
     public void setEventType(EventType eventType) { this.eventType = eventType; }

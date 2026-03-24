@@ -2,6 +2,58 @@
   <div class="upload-wrapper">
     <h2 class="upload-title">文档上传</h2>
 
+    <div class="chunk-settings">
+      <div class="setting-row">
+        <label class="setting-label">分块策略</label>
+        <select v-model="chunkStrategy" class="setting-select">
+          <option value="fixed">固定分块</option>
+          <option value="structural">结构分块</option>
+          <option value="semantic">语义分块</option>
+        </select>
+      </div>
+
+      <!-- Fixed chunk params -->
+      <div v-if="chunkStrategy === 'fixed'" class="params-section">
+        <div class="setting-row">
+          <label class="setting-label">块大小</label>
+          <input type="number" v-model="chunkSize" class="setting-input" min="100" max="2000" />
+          <span class="setting-unit">字符</span>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">块重叠</label>
+          <input type="number" v-model="chunkOverlap" class="setting-input" min="0" max="500" />
+          <span class="setting-unit">字符</span>
+        </div>
+      </div>
+
+      <!-- Structural chunk params -->
+      <div v-if="chunkStrategy === 'structural'" class="params-section">
+        <div class="setting-row">
+          <label class="setting-label">最小段落长度</label>
+          <input type="number" v-model="minParagraphLength" class="setting-input" min="10" max="500" />
+          <span class="setting-unit">字符</span>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">最大段落长度</label>
+          <input type="number" v-model="maxParagraphLength" class="setting-input" min="100" max="10000" />
+          <span class="setting-unit">字符</span>
+        </div>
+      </div>
+
+      <!-- Semantic chunk params -->
+      <div v-if="chunkStrategy === 'semantic'" class="params-section">
+        <div class="setting-row">
+          <label class="setting-label">最大Token数</label>
+          <input type="number" v-model="maxTokensPerChunk" class="setting-input" min="100" max="2000" />
+          <span class="setting-unit">Token</span>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">相似度阈值</label>
+          <input type="number" v-model="similarityThreshold" class="setting-input" min="0.1" max="1.0" step="0.1" />
+        </div>
+      </div>
+    </div>
+
     <div class="drop-zone"
          :class="{ dragover: isDragover }"
          @click="triggerFileInput"
@@ -54,6 +106,16 @@ const { files, uploading } = storeToRefs(documentStore)
 
 const isDragover = ref(false)
 const fileInputRef = ref(null)
+
+// Chunk strategy settings
+const chunkStrategy = ref('fixed')
+const chunkSize = ref(512)
+const chunkOverlap = ref(50)
+const minParagraphLength = ref(50)
+const maxParagraphLength = ref(2000)
+const maxTokensPerChunk = ref(512)
+const similarityThreshold = ref(0.7)
+
 const statusText = {
   pending: '待上传',
   uploading: '上传中',
@@ -84,7 +146,15 @@ const removeFile = (id) => {
 }
 
 const uploadFiles = () => {
-  documentStore.uploadFiles()
+  documentStore.uploadFiles({
+    chunkStrategy: chunkStrategy.value,
+    chunkSize: chunkSize.value,
+    chunkOverlap: chunkOverlap.value,
+    minParagraphLength: minParagraphLength.value,
+    maxParagraphLength: maxParagraphLength.value,
+    maxTokensPerChunk: maxTokensPerChunk.value,
+    similarityThreshold: similarityThreshold.value
+  })
 }
 
 const formatFileSize = (bytes) => {
@@ -93,3 +163,56 @@ const formatFileSize = (bytes) => {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 </script>
+
+<style scoped>
+.chunk-settings {
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.setting-label {
+  width: 120px;
+  font-weight: 500;
+  color: #333;
+}
+
+.setting-select,
+.setting-input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.setting-select {
+  width: 150px;
+}
+
+.setting-input {
+  width: 100px;
+}
+
+.setting-unit {
+  margin-left: 8px;
+  color: #666;
+  font-size: 14px;
+}
+
+.params-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #ddd;
+}
+</style>
