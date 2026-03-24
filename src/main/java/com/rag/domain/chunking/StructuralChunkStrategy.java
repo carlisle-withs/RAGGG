@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 @Component
 public class StructuralChunkStrategy implements ChunkStrategy {
 
-    private int minParagraphLength = 50;
+    private int minParagraphLength = 300;
     private int maxParagraphLength = 2000;
 
     @Override

@@ -32,6 +32,25 @@
           <button class="refresh-btn" @click="loadDocuments">🔄 刷新</button>
         </div>
 
+        <!-- 上传区域 -->
+        <div class="upload-area">
+          <label class="upload-btn primary">
+            <span>📤</span>
+            <span>批量上传文档</span>
+            <input type="file" @change="handleFileUpload" accept=".pdf,.txt,.doc,.docx" multiple hidden>
+          </label>
+          <span class="upload-hint">支持 PDF、TXT、DOC、DOCX，可选择多个文件</span>
+          <span class="upload-status" :class="uploadStatusClass" v-if="uploadStatus">{{ uploadStatus }}</span>
+        </div>
+
+        <!-- 上传进度显示 -->
+        <div v-if="uploadingFiles.length > 0" class="upload-progress">
+          <div v-for="(file, idx) in uploadingFiles" :key="idx" class="upload-file-item">
+            <span class="file-name">{{ file.name }}</span>
+            <span class="file-status" :class="file.status">{{ file.status === 'uploading' ? '上传中...' : file.status }}</span>
+          </div>
+        </div>
+
         <div class="doc-table-wrapper">
           <table class="doc-table">
             <thead>
@@ -49,10 +68,12 @@
                 <td>{{ doc.fileName }}</td>
                 <td>{{ doc.kbId }}</td>
                 <td>{{ doc.chunkStrategy || 'default' }}</td>
-                <td><span class="status-badge" :class="'status-' + doc.status">{{ doc.status }}</span></td>
+                <td>
+                  <span class="status-badge" :class="'status-' + doc.status">{{ formatStatus(doc.status) }}</span>
+                </td>
                 <td>{{ formatDate(doc.createdAt) }}</td>
                 <td>
-                  <button class="action-btn delete" @click="deleteDocument(doc.id)">删除</button>
+                  <button class="action-btn delete" @click="removeDocument(doc.id)">删除</button>
                 </td>
               </tr>
               <tr v-if="documents.length === 0">
@@ -185,13 +206,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { uploadDocument, getDocuments, deleteDocument } from '../api'
 
 defineEmits(['back'])
 
 const activeTab = ref('documents')
 const searchQuery = ref('')
 const documents = ref([])
+const uploadStatus = ref('')
+const uploadStatusClass = ref('')
+const uploadingFiles = ref([])
 const chunkConfig = ref({
   strategy: 'fixed',
   chunkSize: 512,
@@ -223,20 +248,83 @@ const filteredDocuments = computed(() => {
   )
 })
 
-const loadDocuments = () => {
-  // TODO: 从后端 API 加载文档列表
-  // 模拟数据
-  documents.value = [
-    { id: '1', fileName: '示例文档.pdf', kbId: 'default', chunkStrategy: 'fixed', status: 'INDEXED', createdAt: new Date().toISOString() }
-  ]
-  systemStats.value.totalDocuments = documents.value.length
+const loadDocuments = async () => {
+  try {
+    const response = await getDocuments()
+    documents.value = response.data
+    systemStats.value.totalDocuments = documents.value.length
+  } catch (err) {
+    console.error('Failed to load documents:', err)
+    documents.value = []
+    systemStats.value.totalDocuments = 0
+  }
 }
 
-const deleteDocument = async (id) => {
+const removeDocument = async (id) => {
   if (!confirm('确定要删除这个文档吗？')) return
-  // TODO: 调用后端 API 删除文档
-  documents.value = documents.value.filter(d => d.id !== id)
-  systemStats.value.totalDocuments = documents.value.length
+  try {
+    await deleteDocument(id)
+    documents.value = documents.value.filter(d => d.id !== id)
+    systemStats.value.totalDocuments = documents.value.length
+  } catch (err) {
+    alert('删除失败: ' + err.message)
+  }
+}
+
+const handleFileUpload = async (e) => {
+  const files = Array.from(e.target.files)
+  if (files.length === 0) return
+
+  // 从 localStorage 获取保存的分块配置
+  const savedChunkConfig = JSON.parse(localStorage.getItem('chunkConfig') || '{}')
+
+  // 显示上传状态
+  uploadingFiles.value = files.map(f => ({ name: f.name, status: '等待上传' }))
+  uploadStatus.value = `准备上传 ${files.length} 个文件...`
+  uploadStatusClass.value = 'info'
+
+  let successCount = 0
+  let failCount = 0
+
+  // 逐个上传文件，避免内存溢出
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    uploadingFiles.value[i].status = '上传中...'
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('kbId', 'default')
+    formData.append('chunkStrategy', savedChunkConfig.strategy || 'fixed')
+    if (savedChunkConfig.chunkSize) formData.append('chunkSize', savedChunkConfig.chunkSize)
+    if (savedChunkConfig.chunkOverlap) formData.append('chunkOverlap', savedChunkConfig.chunkOverlap)
+    if (savedChunkConfig.minParagraphLength) formData.append('minParagraphLength', savedChunkConfig.minParagraphLength)
+    if (savedChunkConfig.maxParagraphLength) formData.append('maxParagraphLength', savedChunkConfig.maxParagraphLength)
+    if (savedChunkConfig.maxTokensPerChunk) formData.append('maxTokensPerChunk', savedChunkConfig.maxTokensPerChunk)
+    if (savedChunkConfig.similarityThreshold) formData.append('similarityThreshold', savedChunkConfig.similarityThreshold)
+
+    uploadStatus.value = `正在上传 ${i + 1}/${files.length} 个文件...`
+
+    try {
+      await uploadDocument(formData)  // 单文件上传
+      uploadingFiles.value[i].status = '已完成'
+      successCount++
+    } catch (err) {
+      uploadingFiles.value[i].status = `失败: ${err.message}`
+      failCount++
+    }
+  }
+
+  uploadStatus.value = `上传完成: 成功 ${successCount} 个, 失败 ${failCount} 个`
+  uploadStatusClass.value = failCount > 0 ? 'error' : 'success'
+
+  loadDocuments()
+
+  setTimeout(() => {
+    uploadingFiles.value = []
+    uploadStatus.value = ''
+  }, 3000)
+
+  e.target.value = ''
 }
 
 const saveChunkConfig = () => {
@@ -262,12 +350,37 @@ const formatDate = (dateStr) => {
   return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+const formatStatus = (status) => {
+  const statusMap = {
+    'PENDING': '等待中',
+    'UPLOADED': '已上传',
+    'PARSING': '解析中',
+    'PARSED': '已解析',
+    'CHUNKING': '分块中',
+    'CHUNKED': '已分块',
+    'INDEXING': '索引中',
+    'INDEXED': '已完成',
+    'FAILED': '失败'
+  }
+  return statusMap[status] || status
+}
+
+let refreshTimer = null
+
 onMounted(() => {
   loadDocuments()
   // 从 localStorage 加载保存的配置
   const saved = localStorage.getItem('chunkConfig')
   if (saved) {
     chunkConfig.value = JSON.parse(saved)
+  }
+  // 定时刷新文档列表，每 3 秒更新一次状态
+  refreshTimer = setInterval(loadDocuments, 3000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
   }
 })
 </script>
@@ -354,6 +467,98 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
+.upload-area {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #4a90e2;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.upload-btn.primary {
+  background: #4a90e2;
+}
+
+.upload-btn:hover {
+  background: #3a7bc8;
+}
+
+.upload-hint {
+  color: #999;
+  font-size: 13px;
+}
+
+.upload-status {
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+.upload-status.success {
+  color: #2e7d32;
+  background: #e8f5e9;
+}
+
+.upload-status.error {
+  color: #c62828;
+  background: #ffebee;
+}
+
+.upload-status.info {
+  color: #1976d2;
+  background: #e3f2fd;
+}
+
+.upload-progress {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.upload-file-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.upload-file-item:last-child {
+  border-bottom: none;
+}
+
+.file-name {
+  color: #333;
+}
+
+.file-status {
+  font-size: 13px;
+}
+
+.file-status.uploading {
+  color: #1976d2;
+}
+
+.file-status.已完成 {
+  color: #2e7d32;
+}
+
+.file-status.失败, .file-status.失败\: {
+  color: #c62828;
+}
+
 .search-input {
   flex: 1;
   padding: 10px 16px;
@@ -408,10 +613,16 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.status-INDEXED { background: #e8f5e9; color: #2e7d32; }
-.status-PROCESSING { background: #fff3e0; color: #f57c00; }
 .status-PENDING { background: #e3f2fd; color: #1976d2; }
+.status-UPLOADED { background: #e3f2fd; color: #1976d2; }
+.status-PARSING { background: #fff3e0; color: #f57c00; }
+.status-PARSED { background: #e8f5e9; color: #2e7d32; }
+.status-CHUNKING { background: #fff3e0; color: #f57c00; }
+.status-CHUNKED { background: #e8f5e9; color: #2e7d32; }
+.status-INDEXING { background: #fff3e0; color: #f57c00; }
+.status-INDEXED { background: #c8e6c9; color: #1b5e20; }
 .status-FAILED { background: #ffebee; color: #c62828; }
+.status-PROCESSING { background: #fff3e0; color: #f57c00; }
 
 .action-btn.delete {
   background: #ff4444;

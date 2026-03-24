@@ -42,8 +42,19 @@ public class Document {
     @Column(name = "chunk_count")
     private int chunkCount = 0;
 
+    @Column(name = "deleted")
+    private Boolean deleted = false;
+
     public enum DocumentStatus {
-        PENDING, PROCESSING, INDEXED, FAILED
+        PENDING,        // 等待处理
+        UPLOADED,       // 已上传
+        PARSING,        // 解析中
+        PARSED,         // 已解析
+        CHUNKING,       // 分块中
+        CHUNKED,        // 已分块
+        INDEXING,       // 索引中
+        INDEXED,        // 已索引
+        FAILED          // 失败
     }
 
     @PrePersist
@@ -73,4 +84,6 @@ public class Document {
     public void setIndexedAt(LocalDateTime indexedAt) { this.indexedAt = indexedAt; }
     public int getChunkCount() { return chunkCount; }
     public void setChunkCount(int chunkCount) { this.chunkCount = chunkCount; }
+    public Boolean isDeleted() { return deleted; }
+    public void setDeleted(Boolean deleted) { this.deleted = deleted; }
 }

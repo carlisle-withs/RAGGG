@@ -1,9 +1,15 @@
+# ============ 服务器 IP 配置（只改这一处）============
+server:
+  ip: localhost
+
+# ====================================================
+
 app:
   host: 0.0.0.0
   port: 8080
 
 kafka:
-  bootstrap-servers: localhost:9092
+  bootstrap-servers: ${server.ip}:9092
   consumer:
     group-id: rag-system
   topics:
@@ -12,27 +18,27 @@ kafka:
     document-indexed: document-indexed
 
 milvus:
-  host: localhost
-  port: 19531
+  uri: http://${server.ip}:19530
   collection: rag_chunks
 
 elasticsearch:
-  host: localhost
+  host: ${server.ip}
   port: 9201
   index: rag_documents
 
 mysql:
-  host: localhost
+  host: ${server.ip}
   port: 3307
   database: rag_system
   username: root
   password: YOUR_PASSWORD_HERE
 
 llm:
-  provider: openai
-  api-key: ${OPENAI_API_KEY:YOUR_API_KEY_HERE}
-  model: gpt-4o-mini
-  base-url: https://api.openai.com/v1
+  provider: minimax
+  api-key: YOUR_MINIMAX_API_KEY_HERE
+  model: MiniMax-Text-01
+  base-url: https://api.minimax.chat/v1
+  group-id: YOUR_MINIMAX_GROUP_ID_HERE
 
 embedding:
   model: BAAI/bge-m3
@@ -53,7 +59,7 @@ chunking:
   chunk-overlap: 50
 
 minio:
-  endpoint: http://localhost:9001
+  endpoint: http://${server.ip}:9001
   access-key: minioadmin
   secret-key: minioadmin
   bucket: rag-documents

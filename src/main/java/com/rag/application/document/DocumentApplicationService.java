@@ -1,6 +1,8 @@
 package com.rag.application.document;
 
 import com.rag.domain.event.DocumentEvent;
+import com.rag.domain.model.Document;
+import com.rag.domain.repository.DocumentRepository;
 import com.rag.infrastructure.mq.DocumentEventProducer;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
@@ -20,10 +22,14 @@ public class DocumentApplicationService {
 
     private final MinioStorage minioStorage;
     private final DocumentEventProducer eventProducer;
+    private final DocumentRepository documentRepository;
 
-    public DocumentApplicationService(MinioStorage minioStorage, DocumentEventProducer eventProducer) {
+    public DocumentApplicationService(MinioStorage minioStorage,
+                                     DocumentEventProducer eventProducer,
+                                     DocumentRepository documentRepository) {
         this.minioStorage = minioStorage;
         this.eventProducer = eventProducer;
+        this.documentRepository = documentRepository;
     }
 
     public DocumentUploadResult upload(MultipartFile file, String kbId, String chunkStrategy, Map<String, Object> chunkParams) {
@@ -49,14 +55,27 @@ public class DocumentApplicationService {
 
             tracer.stepComplete("1. UPLOAD_MINIO", objectName);
 
+            // Save Document to database immediately
+            Document doc = new Document();
+            doc.setId(documentId);
+            doc.setFileName(fileName);
+            doc.setFileType(fileType);
+            doc.setKbId(kbId);
+            doc.setMinioPath(objectName);
+            doc.setStatus(Document.DocumentStatus.UPLOADED);
+
             // Prepare metadata with chunk strategy
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("fileSize", file.getSize());
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("fileSize", String.valueOf(file.getSize()));
             metadata.put("chunkStrategy", chunkStrategy);
-            metadata.put("chunkParams", chunkParams);
+            metadata.put("traceId", traceId);
+            doc.setMetadata(metadata);
+
+            documentRepository.save(doc);
+            tracer.info("文档保存到数据库: documentId=%s, status=UPLOADED", documentId);
 
             // 创建事件，包含 traceId
-            DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, metadata);
+            DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, new HashMap<>(metadata));
             event.setTraceId(traceId);
 
             tracer.step("2. SEND_KAFKA_MESSAGE");
@@ -67,7 +86,7 @@ public class DocumentApplicationService {
             tracer.stepComplete("2. KAFKA_SENT", "document-upload");
             tracer.info("文档上传完成: documentId=%s, traceId=%s", documentId, traceId);
 
-            return new DocumentUploadResult(documentId, fileName, "PENDING", traceId);
+            return new DocumentUploadResult(documentId, fileName, "UPLOADED", traceId);
 
         } catch (Exception e) {
             log.error("[%s] Upload failed: %s".formatted(traceId, e.getMessage()), e);

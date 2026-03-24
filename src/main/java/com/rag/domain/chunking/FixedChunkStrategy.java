@@ -23,7 +23,7 @@ public class FixedChunkStrategy implements ChunkStrategy {
             int end = Math.min(index + chunkSize, text.length());
             String chunkText = text.substring(index, end);
 
-            Chunk chunk = createChunk(chunkText, documentId, kbId, chunkIndex);
+            Chunk chunk = createChunk(new String(chunkText), documentId, kbId, chunkIndex);
             chunks.add(chunk);
 
             index = end - chunkOverlap;

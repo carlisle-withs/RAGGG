@@ -22,7 +22,7 @@
     <properties>
         <java.version>17</java.version>
         <langchain4j.version>0.36.0</langchain4j.version>
-        <milvus.version>2.3.4</milvus.version>
+        <milvus.version>2.6.6</milvus.version>
         <tika.version>2.9.2</tika.version>
         <commons-compress.version>1.26.0</commons-compress.version>
         <elasticsearch.version>8.15.0</elasticsearch.version>
@@ -109,6 +109,11 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
 
         <!-- MySQL -->
         <dependency>
@@ -171,6 +176,7 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <jvmArguments>-Xmx2g -Xms512m</jvmArguments>
                 </configuration>
             </plugin>
         </plugins>

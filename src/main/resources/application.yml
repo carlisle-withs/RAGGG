@@ -8,12 +8,14 @@ spring:
       max-file-size: 100MB
       max-request-size: 100MB
   kafka:
-    bootstrap-servers: ${kafka.bootstrap-servers:localhost:9092}
+    bootstrap-servers: ${kafka.bootstrap-servers}
     consumer:
       group-id: ${kafka.consumer.group-id:rag-system}
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      concurrency: 1
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -37,8 +39,7 @@ server:
 
 # Custom config
 milvus:
-  host: ${milvus.host:localhost}
-  port: ${milvus.port:19530}
+  uri: ${milvus.uri:http://localhost:19530}
   collection: ${milvus.collection:rag_chunks}
 
 elasticsearch:
@@ -47,10 +48,11 @@ elasticsearch:
   index: ${elasticsearch.index:rag_documents}
 
 llm:
-  provider: ${llm.provider:openai}
-  api-key: ${llm.api-key:sk-dummy}
-  model: ${llm.model:gpt-4o-mini}
-  base-url: ${llm.base-url:https://api.openai.com/v1}
+  provider: ${llm.provider:minimax}
+  api-key: ${llm.api-key:}
+  model: ${llm.model:MiniMax-Text-01}
+  base-url: ${llm.base-url:https://api.minimax.chat/v1}
+  group-id: ""
 
 embedding:
   model: ${embedding.model:BAAI/bge-m3}

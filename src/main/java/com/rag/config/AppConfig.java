@@ -41,13 +41,10 @@ public class AppConfig {
     }
 
     public static class Milvus {
-        private String host = "localhost";
-        private int port = 19531;
+        private String uri = "http://localhost:19530";
         private String collection = "rag_chunks";
-        public String getHost() { return host; }
-        public void setHost(String host) { this.host = host; }
-        public int getPort() { return port; }
-        public void setPort(int port) { this.port = port; }
+        public String getUri() { return uri; }
+        public void setUri(String uri) { this.uri = uri; }
         public String getCollection() { return collection; }
         public void setCollection(String collection) { this.collection = collection; }
     }
@@ -83,10 +80,11 @@ public class AppConfig {
     }
 
     public static class Llm {
-        private String provider = "openai";
-        private String apiKey = "sk-dummy";
-        private String model = "gpt-4o-mini";
-        private String baseUrl = "https://api.openai.com/v1";
+        private String provider = "minimax";  // openai, minimax
+        private String apiKey = "";
+        private String model = "MiniMax-Text-01";
+        private String baseUrl = "https://api.minimax.chat/v1";
+        private String groupId = "";  // MiniMax specific
         public String getProvider() { return provider; }
         public void setProvider(String provider) { this.provider = provider; }
         public String getApiKey() { return apiKey; }
@@ -95,6 +93,8 @@ public class AppConfig {
         public void setModel(String model) { this.model = model; }
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getGroupId() { return groupId; }
+        public void setGroupId(String groupId) { this.groupId = groupId; }
     }
 
     public static class Embedding {

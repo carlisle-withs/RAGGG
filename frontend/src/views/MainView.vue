@@ -113,24 +113,13 @@
           </div>
         </div>
 
-        <!-- 底部工具栏 -->
-        <div class="bottom-toolbar">
-          <label class="upload-btn">
-            <span>📎</span>
-            <span>上传文档</span>
-            <input type="file" @change="handleFileUpload" accept=".pdf,.txt,.doc,.docx" hidden>
-          </label>
-          <div class="upload-status" v-if="uploadStatus">
-            {{ uploadStatus }}
-          </div>
-        </div>
       </main>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, nextTick } from 'vue'
-import { chat, retrieve, uploadDocument } from '../api'
+import { chat, retrieve } from '../api'
 import { useChatStore } from '../stores/chat'
 import { storeToRefs } from 'pinia'
 import AdminView from './AdminView.vue'
@@ -147,9 +136,6 @@ const loading = ref(false)
 // Chat state
 const inputMessage = ref('')
 const retrieveQuery = ref('')
-
-// Upload state
-const uploadStatus = ref('')
 
 const currentModeText = computed(() => {
   switch (currentView.value) {
@@ -214,37 +200,6 @@ const formatRetrieveResults = (results) => {
   return results.map(r =>
     `📄 ${r.content.substring(0, 200)}...\n相似度: ${(r.score * 100).toFixed(1)}%`
   ).join('\n\n')
-}
-
-const handleFileUpload = async (e) => {
-  const file = e.target.files[0]
-  if (!file) return
-
-  uploadStatus.value = '上传中...'
-
-  // 从 localStorage 获取保存的分块配置
-  const savedChunkConfig = JSON.parse(localStorage.getItem('chunkConfig') || '{}')
-
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('kbId', 'default')
-  formData.append('chunkStrategy', savedChunkConfig.strategy || 'fixed')
-  formData.append('chunkSize', savedChunkConfig.chunkSize || 512)
-  formData.append('chunkOverlap', savedChunkConfig.chunkOverlap || 50)
-  formData.append('minParagraphLength', savedChunkConfig.minParagraphLength || 50)
-  formData.append('maxParagraphLength', savedChunkConfig.maxParagraphLength || 2000)
-  formData.append('maxTokensPerChunk', savedChunkConfig.maxTokensPerChunk || 512)
-  formData.append('similarityThreshold', savedChunkConfig.similarityThreshold || 0.7)
-
-  try {
-    await uploadDocument(formData)
-    uploadStatus.value = '上传成功'
-    setTimeout(() => { uploadStatus.value = '' }, 2000)
-  } catch (err) {
-    uploadStatus.value = '上传失败: ' + err.message
-  }
-
-  e.target.value = ''
 }
 
 const formatMessage = (content) => {
@@ -594,36 +549,5 @@ const scrollToBottom = () => {
 .send-btn:disabled {
   background: #ccc;
   cursor: not-allowed;
-}
-
-/* 底部工具栏 */
-.bottom-toolbar {
-  padding: 8px 24px;
-  background: #fafafa;
-  border-top: 1px solid #e0e0e0;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.upload-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.upload-btn:hover {
-  background: #f5f5f5;
-}
-
-.upload-status {
-  color: #666;
-  font-size: 13px;
 }
 </style>

@@ -1,18 +1,23 @@
 package com.rag.infrastructure.vector;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.rag.config.AppConfig;
 import com.rag.domain.model.Chunk;
-import io.milvus.client.MilvusServiceClient;
-import io.milvus.common.clientenum.ConsistencyLevelEnum;
-import io.milvus.grpc.DataType;
-import io.milvus.grpc.SearchResults;
-import io.milvus.param.*;
-import io.milvus.param.collection.CreateCollectionParam;
-import io.milvus.param.collection.FieldType;
-import io.milvus.param.collection.HasCollectionParam;
-import io.milvus.param.dml.InsertParam;
-import io.milvus.param.dml.SearchParam;
-import io.milvus.response.SearchResultsWrapper;
+import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.common.ConsistencyLevel;
+import io.milvus.v2.common.DataType;
+import io.milvus.v2.common.IndexParam;
+import io.milvus.v2.service.collection.request.CreateCollectionReq;
+import io.milvus.v2.service.collection.request.DropCollectionReq;
+import io.milvus.v2.service.collection.request.HasCollectionReq;
+import io.milvus.v2.service.collection.request.LoadCollectionReq;
+import io.milvus.v2.service.vector.request.InsertReq;
+import io.milvus.v2.service.vector.request.SearchReq;
+import io.milvus.v2.service.vector.request.data.BaseVector;
+import io.milvus.v2.service.vector.request.data.FloatVec;
+import io.milvus.v2.service.vector.response.InsertResp;
+import io.milvus.v2.service.vector.response.SearchResp;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,11 +30,11 @@ public class MilvusVectorStore {
 
     private static final Logger log = LoggerFactory.getLogger(MilvusVectorStore.class);
 
-    private final MilvusServiceClient milvusClient;
+    private final MilvusClientV2 milvusClient;
     private final String collectionName;
     private final int dimension;
 
-    public MilvusVectorStore(MilvusServiceClient milvusClient, AppConfig appConfig) {
+    public MilvusVectorStore(MilvusClientV2 milvusClient, AppConfig appConfig) {
         this.milvusClient = milvusClient;
         this.collectionName = appConfig.getMilvus().getCollection();
         this.dimension = appConfig.getEmbedding().getDimension();
@@ -38,85 +43,151 @@ public class MilvusVectorStore {
     @PostConstruct
     public void init() {
         try {
-            HasCollectionParam hasCollectionParam = HasCollectionParam.newBuilder()
-                    .withCollectionName(collectionName)
-                    .build();
-            Boolean hasCollection = milvusClient.hasCollection(hasCollectionParam).getData();
+            log.info("Initializing Milvus collection: {}, dimension: {}", collectionName, dimension);
 
-            if (!hasCollection) {
-                createCollection();
+            boolean hasCollection = milvusClient.hasCollection(
+                    HasCollectionReq.builder().collectionName(collectionName).build()
+            );
+            log.info("Collection exists: {}", hasCollection);
+
+            if (hasCollection) {
+                log.info("Dropping existing collection: {}", collectionName);
+                milvusClient.dropCollection(
+                        DropCollectionReq.builder().collectionName(collectionName).build()
+                );
+                log.info("Collection dropped");
             }
-            log.info("Milvus collection ready: {}", collectionName);
+
+            createCollection();
+
+            // Verify collection was created
+            boolean nowExists = milvusClient.hasCollection(
+                    HasCollectionReq.builder().collectionName(collectionName).build()
+            );
+            log.info("Collection created, exists now: {}", nowExists);
+
         } catch (Exception e) {
             log.error("Failed to initialize Milvus", e);
         }
     }
 
     private void createCollection() {
-        FieldType idField = FieldType.newBuilder()
-                .withName("id")
-                .withDataType(DataType.VarChar)
-                .withMaxLength(36)
-                .withPrimaryKey(true)
+        List<CreateCollectionReq.FieldSchema> fieldSchemaList = new ArrayList<>();
+
+        // Primary key field - doc_id (String)
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("doc_id")
+                        .dataType(DataType.VarChar)
+                        .maxLength(36)
+                        .isPrimaryKey(true)
+                        .autoID(false)
+                        .build()
+        );
+
+        // chunk_id field
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("chunk_id")
+                        .dataType(DataType.VarChar)
+                        .maxLength(36)
+                        .build()
+        );
+
+        // document_id field
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("document_id")
+                        .dataType(DataType.VarChar)
+                        .maxLength(36)
+                        .build()
+        );
+
+        // content field
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("content")
+                        .dataType(DataType.VarChar)
+                        .maxLength(65535)
+                        .build()
+        );
+
+        // embedding field
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("embedding")
+                        .dataType(DataType.FloatVector)
+                        .dimension(dimension)
+                        .build()
+        );
+
+        // kb_id field
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name("kb_id")
+                        .dataType(DataType.VarChar)
+                        .maxLength(36)
+                        .build()
+        );
+
+        CreateCollectionReq.CollectionSchema collectionSchema = CreateCollectionReq.CollectionSchema
+                .builder()
+                .fieldSchemaList(fieldSchemaList)
                 .build();
 
-        FieldType chunkIdField = FieldType.newBuilder()
-                .withName("chunk_id")
-                .withDataType(DataType.VarChar)
-                .withMaxLength(36)
+        // Index on embedding field
+        IndexParam hnswIndex = IndexParam.builder()
+                .fieldName("embedding")
+                .indexType(IndexParam.IndexType.HNSW)
+                .metricType(IndexParam.MetricType.IP)
+                .indexName("embedding")
+                .extraParams(Map.of(
+                        "M", "16",
+                        "efConstruction", "200"
+                ))
                 .build();
 
-        FieldType documentIdField = FieldType.newBuilder()
-                .withName("document_id")
-                .withDataType(DataType.VarChar)
-                .withMaxLength(36)
+        CreateCollectionReq createReq = CreateCollectionReq.builder()
+                .collectionName(collectionName)
+                .collectionSchema(collectionSchema)
+                .primaryFieldName("doc_id")
+                .vectorFieldName("embedding")
+                .consistencyLevel(ConsistencyLevel.BOUNDED)
+                .indexParams(List.of(hnswIndex))
                 .build();
 
-        FieldType contentField = FieldType.newBuilder()
-                .withName("content")
-                .withDataType(DataType.VarChar)
-                .withMaxLength(65535)
-                .build();
+        log.info("Creating collection with fields: doc_id(VarChar,PK), chunk_id(VarChar), document_id(VarChar), content(VarChar), embedding(FloatVector,dim={}), kb_id(VarChar)", dimension);
+        milvusClient.createCollection(createReq);
+        log.info("Collection created successfully: {}", collectionName);
 
-        FieldType embeddingField = FieldType.newBuilder()
-                .withName("embedding")
-                .withDataType(DataType.FloatVector)
-                .withDimension(dimension)
-                .build();
-
-        FieldType kbIdField = FieldType.newBuilder()
-                .withName("kb_id")
-                .withDataType(DataType.VarChar)
-                .withMaxLength(36)
-                .build();
-
-        CreateCollectionParam param = CreateCollectionParam.newBuilder()
-                .withCollectionName(collectionName)
-                .withFieldTypes(Arrays.asList(idField, chunkIdField, documentIdField, contentField, embeddingField, kbIdField))
-                .build();
-
-        milvusClient.createCollection(param);
-        log.info("Created Milvus collection: {}", collectionName);
+        // Load collection for searching
+        milvusClient.loadCollection(
+                LoadCollectionReq.builder().collectionName(collectionName).build()
+        );
+        log.info("Milvus collection loaded: {}", collectionName);
     }
 
     public void insert(Chunk chunk, float[] embedding) {
         try {
-            List<InsertParam.Field> fields = Arrays.asList(
-                    new InsertParam.Field("id", Collections.singletonList(chunk.getId())),
-                    new InsertParam.Field("chunk_id", Collections.singletonList(chunk.getId())),
-                    new InsertParam.Field("document_id", Collections.singletonList(chunk.getDocumentId())),
-                    new InsertParam.Field("content", Collections.singletonList(chunk.getContent())),
-                    new InsertParam.Field("embedding", Collections.singletonList(embedding)),
-                    new InsertParam.Field("kb_id", Collections.singletonList(chunk.getMetadata().getOrDefault("kbId", "").toString()))
-            );
+            log.info(">>> About to insert to Milvus: id={}, collection={}, embedding_len={}",
+                    chunk.getId(), collectionName, embedding.length);
 
-            InsertParam insertParam = InsertParam.newBuilder()
-                    .withCollectionName(collectionName)
-                    .withFields(fields)
+            JsonObject row = new JsonObject();
+            row.addProperty("doc_id", chunk.getId());
+            row.addProperty("chunk_id", chunk.getId());
+            row.addProperty("document_id", chunk.getDocumentId());
+            row.addProperty("content", chunk.getContent());
+            row.add("embedding", toJsonArray(embedding));
+            row.addProperty("kb_id", chunk.getMetadata().getOrDefault("kbId", "").toString());
+
+            InsertReq req = InsertReq.builder()
+                    .collectionName(collectionName)
+                    .data(List.of(row))
                     .build();
 
-            milvusClient.insert(insertParam);
-            log.debug("Inserted chunk: {}", chunk.getId());
+            log.info(">>> InsertReq built, executing insert...");
+            InsertResp resp = milvusClient.insert(req);
+            log.info(">>> Insert successful for chunk: {}, insertCnt={}", chunk.getId(), resp.getInsertCnt());
 
         } catch (Exception e) {
             log.error("Failed to insert chunk: {}", chunk.getId(), e);
@@ -126,34 +197,47 @@ public class MilvusVectorStore {
 
     public List<SearchResult> search(float[] queryEmbedding, String kbId, int topK) {
         try {
-            SearchParam.Builder searchBuilder = SearchParam.newBuilder()
-                    .withCollectionName(collectionName)
-                    .withVectors(Collections.singletonList(queryEmbedding))
-                    .withVectorFieldName("embedding")
-                    .withTopK(topK)
-                    .withConsistencyLevel(ConsistencyLevelEnum.STRONG);
+            // Ensure collection is loaded before search
+            milvusClient.loadCollection(
+                    LoadCollectionReq.builder().collectionName(collectionName).build()
+            );
+
+            // Convert float[] to List<BaseVector>
+            List<BaseVector> vectors = List.of(new FloatVec(queryEmbedding));
+
+            Map<String, Object> params = new HashMap<>();
+            params.put("metric_type", "IP");
+            params.put("ef", 128);
+
+            SearchReq.SearchReqBuilder searchBuilder = SearchReq.builder()
+                    .collectionName(collectionName)
+                    .annsField("embedding")
+                    .data(vectors)
+                    .topK(topK)
+                    .searchParams(params)
+                    .outputFields(List.of("doc_id", "chunk_id", "content"));
 
             if (kbId != null && !kbId.isEmpty()) {
-                searchBuilder.withExpr("kb_id == \"" + kbId + "\"");
+                searchBuilder.filter("kb_id == \"" + kbId + "\"");
             }
 
-            SearchResults results = milvusClient.search(searchBuilder.build()).getData();
-            SearchResultsWrapper wrapper = new SearchResultsWrapper(results.getResults());
+            SearchResp resp = milvusClient.search(searchBuilder.build());
+            List<List<SearchResp.SearchResult>> results = resp.getSearchResults();
+
+            if (results == null || results.isEmpty()) {
+                return Collections.emptyList();
+            }
 
             List<SearchResult> searchResults = new ArrayList<>();
-            List<?> records = wrapper.getRowRecords();
-            for (int i = 0; i < records.size(); i++) {
-                Object rowRecord = records.get(i);
-
-                java.lang.reflect.Method getContentMethod = rowRecord.getClass().getMethod("get", String.class);
-                Object contentObj = getContentMethod.invoke(rowRecord, "content");
-                Object chunkIdObj = getContentMethod.invoke(rowRecord, "chunk_id");
-
+            int i = 0;
+            for (SearchResp.SearchResult r : results.get(0)) {
+                Map<String, Object> entity = r.getEntity();
                 SearchResult result = new SearchResult();
-                result.setChunkId(chunkIdObj != null ? chunkIdObj.toString() : "");
-                result.setContent(contentObj != null ? contentObj.toString() : "");
-                result.setScore(1.0 / (1.0 + i * 0.1));
+                result.setChunkId(entity.get("chunk_id") != null ? entity.get("chunk_id").toString() : "");
+                result.setContent(entity.get("content") != null ? entity.get("content").toString() : "");
+                result.setScore(r.getScore());
                 searchResults.add(result);
+                i++;
             }
 
             return searchResults;
@@ -162,6 +246,14 @@ public class MilvusVectorStore {
             log.error("Search failed", e);
             return Collections.emptyList();
         }
+    }
+
+    private JsonArray toJsonArray(float[] v) {
+        JsonArray arr = new JsonArray(v.length);
+        for (float x : v) {
+            arr.add(x);
+        }
+        return arr;
     }
 
     public static class SearchResult {
