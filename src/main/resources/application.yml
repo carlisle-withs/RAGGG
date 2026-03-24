@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: RAGDemo
+  config:
+    import: optional:file:./config.yaml
+  kafka:
+    bootstrap-servers: ${kafka.bootstrap-servers:localhost:9092}
+    consumer:
+      group-id: ${kafka.consumer.group-id:rag-system}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  datasource:
+    url: jdbc:mysql://${mysql.host:localhost}:${mysql.port:3306}/${mysql.database:rag_system}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: ${mysql.username:root}
+    password: ${mysql.password:password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+server:
+  port: ${app.port:8080}
+  address: ${app.host:0.0.0.0}
+
+# Custom config
+milvus:
+  host: ${milvus.host:localhost}
+  port: ${milvus.port:19530}
+  collection: ${milvus.collection:rag_chunks}
+
+elasticsearch:
+  host: ${elasticsearch.host:localhost}
+  port: ${elasticsearch.port:9200}
+  index: ${elasticsearch.index:rag_documents}
+
+llm:
+  provider: ${llm.provider:openai}
+  api-key: ${llm.api-key:sk-dummy}
+  model: ${llm.model:gpt-4o-mini}
+  base-url: ${llm.base-url:https://api.openai.com/v1}
+
+embedding:
+  model: ${embedding.model:BAAI/bge-m3}
+  dimension: ${embedding.dimension:1024}
+
+reranker:
+  model: ${reranker.model:BAAI/bge-reranker-v2-m3}
+
+memory:
+  window-size: ${memory.window-size:10}
+  summary-threshold: ${memory.summary-threshold:8}
+  ttl-days: ${memory.ttl-days:7}
+
+chunking:
+  chunk-size: ${chunking.chunk-size:512}
+  chunk-overlap: ${chunking.chunk-overlap:50}
+
+kafka-topics:
+  document-raw: ${kafka.topics.document-raw:document-raw}
+  document-chunked: ${kafka.topics.document-chunked:document-chunked}
+  document-indexed: ${kafka.topics.document-indexed:document-indexed}
+
+minio:
+  endpoint: ${minio.endpoint:http://localhost:9001}
+  access-key: ${minio.access-key:minioadmin}
+  secret-key: ${minio.secret-key:minioadmin}
+  bucket: ${minio.bucket:rag-documents}
+
+logging:
+  level:
+    root: INFO
+    com.rag: DEBUG

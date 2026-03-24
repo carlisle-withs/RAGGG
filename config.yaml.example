@@ -1,0 +1,59 @@
+app:
+  host: 0.0.0.0
+  port: 8080
+
+kafka:
+  bootstrap-servers: localhost:9092
+  consumer:
+    group-id: rag-system
+  topics:
+    document-raw: document-raw
+    document-chunked: document-chunked
+    document-indexed: document-indexed
+
+milvus:
+  host: localhost
+  port: 19531
+  collection: rag_chunks
+
+elasticsearch:
+  host: localhost
+  port: 9201
+  index: rag_documents
+
+mysql:
+  host: localhost
+  port: 3307
+  database: rag_system
+  username: root
+  password: YOUR_PASSWORD_HERE
+
+llm:
+  provider: openai
+  api-key: ${OPENAI_API_KEY:YOUR_API_KEY_HERE}
+  model: gpt-4o-mini
+  base-url: https://api.openai.com/v1
+
+embedding:
+  model: BAAI/bge-m3
+  dimension: 1024
+  base-url: https://api.siliconflow.cn/v1
+  api-key: YOUR_SILICONFLOW_API_KEY_HERE
+
+reranker:
+  model: BAAI/bge-reranker-v2-m3
+
+memory:
+  window-size: 10
+  summary-threshold: 8
+  ttl-days: 7
+
+chunking:
+  chunk-size: 512
+  chunk-overlap: 50
+
+minio:
+  endpoint: http://localhost:9001
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: rag-documents

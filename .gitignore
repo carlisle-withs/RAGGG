@@ -1,0 +1,49 @@
+# Build output
+target/
+
+# Maven wrapper (downloaded)
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Config with secrets - use config.yaml.example instead
+config.yaml
+src/main/resources/application-local.yml
+src/main/resources/application-secrets.yml
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker volumes (data)
+docker-compose.override.yml
+
+# MinIO data
+minio_data/
+
+# Node modules
+frontend/node_modules/
+frontend/package-lock.json
+
+# Claude AI files
+.claude/
+
+# Maven wrapper
+.mvn/
+
+# Project specific
+SPEC.md
