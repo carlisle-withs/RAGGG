@@ -15,7 +15,6 @@ public class AppConfig {
     private Llm llm = new Llm();
     private Embedding embedding = new Embedding();
     private Chunking chunking = new Chunking();
-    private KafkaTopics kafkaTopics = new KafkaTopics();
     private Minio minio = new Minio();
 
     public static class App {
@@ -122,18 +121,6 @@ public class AppConfig {
         public void setChunkOverlap(int chunkOverlap) { this.chunkOverlap = chunkOverlap; }
     }
 
-    public static class KafkaTopics {
-        private String documentRaw = "document-raw";
-        private String documentChunked = "document-chunked";
-        private String documentIndexed = "document-indexed";
-        public String getDocumentRaw() { return documentRaw; }
-        public void setDocumentRaw(String documentRaw) { this.documentRaw = documentRaw; }
-        public String getDocumentChunked() { return documentChunked; }
-        public void setDocumentChunked(String documentChunked) { this.documentChunked = documentChunked; }
-        public String getDocumentIndexed() { return documentIndexed; }
-        public void setDocumentIndexed(String documentIndexed) { this.documentIndexed = documentIndexed; }
-    }
-
     public static class Minio {
         private String endpoint = "http://localhost:9001";
         private String accessKey = "minioadmin";
@@ -165,8 +152,6 @@ public class AppConfig {
     public void setEmbedding(Embedding embedding) { this.embedding = embedding; }
     public Chunking getChunking() { return chunking; }
     public void setChunking(Chunking chunking) { this.chunking = chunking; }
-    public KafkaTopics getKafkaTopics() { return kafkaTopics; }
-    public void setKafkaTopics(KafkaTopics kafkaTopics) { this.kafkaTopics = kafkaTopics; }
     public Minio getMinio() { return minio; }
     public void setMinio(Minio minio) { this.minio = minio; }
 }

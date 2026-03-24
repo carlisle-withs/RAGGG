@@ -9,7 +9,7 @@ public class DocumentEvent implements Serializable {
     private static final long serialVersionUID = 1L;
 
     public enum EventType {
-        UPLOAD, CHUNKED, INDEXED, FAILED
+        UPLOADED, PARSED, CHUNKED, INDEXED, FAILED
     }
 
     private String eventId;
@@ -19,6 +19,7 @@ public class DocumentEvent implements Serializable {
     private String fileName;
     private String fileType;
     private String minioPath;
+    private String parsedMinioPath;
     private Map<String, Object> metadata;
     private LocalDateTime timestamp;
 
@@ -30,7 +31,7 @@ public class DocumentEvent implements Serializable {
                                        String fileType, String minioPath, Map<String, Object> metadata) {
         DocumentEvent event = new DocumentEvent();
         event.eventId = java.util.UUID.randomUUID().toString();
-        event.eventType = EventType.UPLOAD;
+        event.eventType = EventType.UPLOADED;
         event.documentId = documentId;
         event.kbId = kbId;
         event.fileName = fileName;
@@ -54,6 +55,8 @@ public class DocumentEvent implements Serializable {
     public void setFileType(String fileType) { this.fileType = fileType; }
     public String getMinioPath() { return minioPath; }
     public void setMinioPath(String minioPath) { this.minioPath = minioPath; }
+    public String getParsedMinioPath() { return parsedMinioPath; }
+    public void setParsedMinioPath(String parsedMinioPath) { this.parsedMinioPath = parsedMinioPath; }
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     public LocalDateTime getTimestamp() { return timestamp; }

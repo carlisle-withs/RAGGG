@@ -40,7 +40,7 @@ public class DocumentApplicationService {
             metadata.put("fileSize", file.getSize());
 
             DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, metadata);
-            eventProducer.sendRawDocument(event);
+            eventProducer.sendUploaded(event);
 
             log.info("Document uploaded: {}", documentId);
 

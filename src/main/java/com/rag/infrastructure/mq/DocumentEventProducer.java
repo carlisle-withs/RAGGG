@@ -15,24 +15,22 @@ public class DocumentEventProducer {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
-    private final String rawTopic;
-    private final String chunkedTopic;
 
-    public DocumentEventProducer(KafkaTemplate<String, String> kafkaTemplate,
-                                 ObjectMapper objectMapper,
-                                 AppConfig appConfig) {
+    public DocumentEventProducer(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
-        this.rawTopic = appConfig.getKafkaTopics().getDocumentRaw();
-        this.chunkedTopic = appConfig.getKafkaTopics().getDocumentChunked();
     }
 
-    public void sendRawDocument(DocumentEvent event) {
-        send(rawTopic, event);
+    public void sendUploaded(DocumentEvent event) {
+        send(KafkaTopics.DOCUMENT_UPLOAD, event);
     }
 
-    public void sendChunkedDocument(DocumentEvent event) {
-        send(chunkedTopic, event);
+    public void sendParsed(DocumentEvent event) {
+        send(KafkaTopics.DOCUMENT_PARSED, event);
+    }
+
+    public void sendChunked(DocumentEvent event) {
+        send(KafkaTopics.DOCUMENT_CHUNKED, event);
     }
 
     private void send(String topic, DocumentEvent event) {

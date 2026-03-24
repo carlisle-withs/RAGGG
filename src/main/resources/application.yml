@@ -3,6 +3,10 @@ spring:
     name: RAGDemo
   config:
     import: optional:file:./config.yaml
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
   kafka:
     bootstrap-servers: ${kafka.bootstrap-servers:localhost:9092}
     consumer:

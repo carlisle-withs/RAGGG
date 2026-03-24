@@ -10,6 +10,7 @@ import java.util.Map;
 public class Chunk {
 
     @Id
+    @GeneratedValue(generator = "uuid")
     private String id;
 
     @Column(name = "document_id")

@@ -24,6 +24,7 @@
         <langchain4j.version>0.36.0</langchain4j.version>
         <milvus.version>2.3.4</milvus.version>
         <tika.version>2.9.2</tika.version>
+        <commons-compress.version>1.26.0</commons-compress.version>
         <elasticsearch.version>8.15.0</elasticsearch.version>
         <mysql.version>8.4.0</mysql.version>
     </properties>
@@ -84,6 +85,11 @@
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-parsers-standard-package</artifactId>
             <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>${commons-compress.version}</version>
         </dependency>
 
         <!-- Milvus -->
