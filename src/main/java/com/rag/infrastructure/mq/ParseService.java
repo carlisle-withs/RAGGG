@@ -17,6 +17,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class ParseService {
@@ -73,23 +75,29 @@ public class ParseService {
             tracer.info("下载原始文件: minioPath=%s", event.getMinioPath());
             String parsedPath = event.getKbId() + "/" + event.getDocumentId() + "/parsed.txt";
             int textLength;
+            String mimeType = "application/octet-stream";
             Path tempParsedFile = Files.createTempFile("rag-parsed-", ".txt");
             try (InputStream fileStream = minioStorage.getObjectStream(event.getMinioPath())) {
                 tracer.step("3.1 EXTRACT_TEXT");
                 tracer.info("使用 Tika 解析文档...");
+
+                // 检测 MIME 类型
+                mimeType = detectMimeType(fileStream);
+                tracer.info("Tika 检测到 MIME 类型: %s", mimeType);
+            }
+            try (InputStream fileStream = minioStorage.getObjectStream(event.getMinioPath())) {
                 String parsedText = tika.parseToString(fileStream);
                 textLength = parsedText.length();
                 tracer.info("文本提取完成: textLength=%d characters", textLength);
 
                 tracer.info("上传解析后文本到 MinIO: path=%s", parsedPath);
                 Files.writeString(tempParsedFile, parsedText, StandardCharsets.UTF_8);
-                try (InputStream parsedStream = Files.newInputStream(tempParsedFile)) {
-                    minioStorage.upload(parsedPath, parsedStream, Files.size(tempParsedFile), "text/plain");
-                }
-                tracer.stepComplete("3.1 EXTRACT_TEXT", "textLength=" + textLength);
-            } finally {
-                Files.deleteIfExists(tempParsedFile);
             }
+            try (InputStream parsedStream = Files.newInputStream(tempParsedFile)) {
+                minioStorage.upload(parsedPath, parsedStream, Files.size(tempParsedFile), "text/plain");
+            }
+            tracer.stepComplete("3.1 EXTRACT_TEXT", "textLength=" + textLength);
+            Files.deleteIfExists(tempParsedFile);
 
             // Update status to PARSED
             documentRepository.findById(documentId).ifPresent(doc -> {
@@ -101,7 +109,13 @@ public class ParseService {
             tracer.step("3.2 SEND_KAFKA_MESSAGE");
             event.setEventType(DocumentEvent.EventType.PARSED);
             event.setParsedMinioPath(parsedPath);
-            tracer.info("发送 Kafka 消息: topic=document-parsed, parsedPath=%s", parsedPath);
+
+            // 添加 MIME 类型到元数据
+            Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
+            metadata.put("mimeType", mimeType);
+            event.setMetadata(metadata);
+
+            tracer.info("发送 Kafka 消息: topic=document-parsed, parsedPath=%s, mimeType=%s", parsedPath, mimeType);
             eventProducer.sendParsed(event);
 
             tracer.stepComplete("3. PARSE_COMPLETE", "parsedPath=" + parsedPath);
@@ -119,6 +133,20 @@ public class ParseService {
             } catch (Exception ex) {
                 log.error("Failed to update document status to FAILED", ex);
             }
+        }
+    }
+
+    /**
+     * 使用 Tika 检测文件的 MIME 类型
+     */
+    private String detectMimeType(InputStream stream) {
+        try {
+            // 使用 Tika 的 detect 方法检测 MIME 类型
+            org.apache.tika.metadata.Metadata metadata = new org.apache.tika.metadata.Metadata();
+            return tika.detect(stream, metadata);
+        } catch (Exception e) {
+            log.warn("Failed to detect MIME type: {}", e.getMessage());
+            return "application/octet-stream";
         }
     }
 }

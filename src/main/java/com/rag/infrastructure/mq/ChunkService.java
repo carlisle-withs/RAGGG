@@ -93,9 +93,21 @@ public class ChunkService {
             tracer.step("4.1 CHUNK_TEXT");
             tracer.info("开始分块: strategy=%s, params=%s", strategyName, strategyParams);
 
-            // Get strategy and chunk
-            ChunkStrategy strategy = chunkStrategyFactory.getStrategy(strategyName, strategyParams);
-            List<Chunk> chunks = strategy.chunk(text, event.getDocumentId(), event.getKbId());
+            // 获取 MIME 类型（由 ParseService 通过 Tika 检测）
+            String mimeType = (String) metadata.get("mimeType");
+            tracer.info("MIME 类型: %s", mimeType != null ? mimeType : "未检测到");
+
+            List<Chunk> chunks;
+
+            // 如果是智能分块策略，使用 MIME 类型进行智能选择
+            if ("intelligent".equalsIgnoreCase(strategyName) && mimeType != null) {
+                tracer.info("使用智能分块（基于 MIME 类型: %s）", mimeType);
+                chunks = chunkStrategyFactory.getIntelligentChunks(text, event.getDocumentId(), event.getKbId(), mimeType);
+            } else {
+                // 使用指定的策略
+                ChunkStrategy strategy = chunkStrategyFactory.getStrategy(strategyName, strategyParams);
+                chunks = strategy.chunk(text, event.getDocumentId(), event.getKbId());
+            }
 
             tracer.info("分块完成: chunkCount=%d, strategy=%s", chunks.size(), strategyName);
 
