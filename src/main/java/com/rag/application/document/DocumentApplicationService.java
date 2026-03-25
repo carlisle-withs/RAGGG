@@ -75,7 +75,11 @@ public class DocumentApplicationService {
             tracer.info("文档保存到数据库: documentId=%s, status=UPLOADED", documentId);
 
             // 创建事件，包含 traceId
-            DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, new HashMap<>(metadata));
+            Map<String, Object> eventMetadata = new HashMap<>();
+            eventMetadata.putAll(metadata);
+            eventMetadata.put("chunkStrategy", chunkStrategy);
+            eventMetadata.put("chunkParams", new HashMap<>(chunkParams));
+            DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, eventMetadata);
             event.setTraceId(traceId);
 
             tracer.step("2. SEND_KAFKA_MESSAGE");
