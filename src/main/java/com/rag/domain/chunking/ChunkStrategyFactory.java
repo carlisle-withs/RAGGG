@@ -3,29 +3,16 @@ package com.rag.domain.chunking;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class ChunkStrategyFactory {
 
-    private final FixedChunkStrategy fixedChunkStrategy;
-    private final StructuralChunkStrategy structuralChunkStrategy;
-    private final SemanticChunkStrategy semanticChunkStrategy;
-
-    public ChunkStrategyFactory(FixedChunkStrategy fixedChunkStrategy,
-                               StructuralChunkStrategy structuralChunkStrategy,
-                               SemanticChunkStrategy semanticChunkStrategy) {
-        this.fixedChunkStrategy = fixedChunkStrategy;
-        this.structuralChunkStrategy = structuralChunkStrategy;
-        this.semanticChunkStrategy = semanticChunkStrategy;
-    }
-
     public ChunkStrategy getStrategy(String strategyName, Map<String, Object> params) {
         ChunkStrategy strategy = switch (strategyName.toLowerCase()) {
-            case "fixed" -> fixedChunkStrategy;
-            case "structural" -> structuralChunkStrategy;
-            case "semantic" -> semanticChunkStrategy;
-            default -> fixedChunkStrategy;
+            case "fixed" -> new FixedChunkStrategy();
+            case "structural" -> new StructuralChunkStrategy();
+            case "semantic" -> new SemanticChunkStrategy();
+            default -> new FixedChunkStrategy();
         };
 
         // Apply parameters
@@ -54,9 +41,6 @@ public class ChunkStrategyFactory {
         } else if (strategy instanceof SemanticChunkStrategy semantic) {
             if (params.containsKey("maxTokensPerChunk")) {
                 semantic.setMaxTokensPerChunk((Integer) params.get("maxTokensPerChunk"));
-            }
-            if (params.containsKey("similarityThreshold")) {
-                semantic.setSimilarityThreshold((Double) params.get("similarityThreshold"));
             }
         }
     }

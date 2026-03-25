@@ -176,7 +176,7 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
-                    <jvmArguments>-Xmx2g -Xms512m</jvmArguments>
+                    <jvmArguments>-Xmx4g -Xms2g</jvmArguments>
                 </configuration>
             </plugin>
         </plugins>

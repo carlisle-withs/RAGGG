@@ -11,9 +11,12 @@ spring:
     bootstrap-servers: ${kafka.bootstrap-servers}
     consumer:
       group-id: ${kafka.consumer.group-id:rag-system}
+      max-poll-records: 1
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.interval.ms: 1800000
     listener:
       concurrency: 1
     producer:

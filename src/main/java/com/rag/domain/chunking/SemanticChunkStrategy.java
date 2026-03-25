@@ -1,7 +1,6 @@
 package com.rag.domain.chunking;
 
 import com.rag.domain.model.Chunk;
-import com.rag.infrastructure.llm.EmbeddingService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -11,60 +10,59 @@ import java.util.UUID;
 @Component
 public class SemanticChunkStrategy implements ChunkStrategy {
 
-    private final EmbeddingService embeddingService;
     private int maxTokensPerChunk = 512;
-    private double similarityThreshold = 0.7;
 
     private static final String[] SENTENCE_DELIMITERS = {
-        "。", "！", "？", ".", "!", "?"
+            "。", "！", "？", ".", "!", "?"
     };
-
-    public SemanticChunkStrategy(EmbeddingService embeddingService) {
-        this.embeddingService = embeddingService;
-    }
 
     @Override
     public List<Chunk> chunk(String text, String documentId, String kbId) {
-        List<Chunk> chunks = new ArrayList<>();
-
-        // Split into sentences
+        // Step 1: Split text into sentences
         List<String> sentences = splitIntoSentences(text);
 
+        // Step 2: Group sentences into chunks based on token count
+        List<String> chunkContents = groupSentencesToChunks(sentences);
+
+        // Step 3: Convert to Chunks
+        List<Chunk> chunks = new ArrayList<>();
+        for (int i = 0; i < chunkContents.size(); i++) {
+            String content = chunkContents.get(i);
+            chunks.add(createChunk(content, documentId, kbId, i));
+        }
+
+        return chunks;
+    }
+
+    private List<String> groupSentencesToChunks(List<String> sentences) {
+        List<String> chunks = new ArrayList<>();
         StringBuilder currentChunk = new StringBuilder();
-        float[] previousEmbedding = null;
-        int chunkIndex = 0;
+        int currentTokens = 0;
 
         for (String sentence : sentences) {
-            String trialChunk = currentChunk.length() > 0
-                ? currentChunk.toString() + sentence
-                : sentence;
+            int sentenceTokens = sentence.length() / 4;
 
-            int estimatedTokens = trialChunk.length() / 4;
-
-            // If exceeds max tokens, save current and start new
-            if (estimatedTokens > maxTokensPerChunk && currentChunk.length() > 0) {
-                chunks.add(createChunk(currentChunk.toString(), documentId, kbId, chunkIndex++));
-
-                // Calculate similarity with previous chunk for semantic continuity
-                float[] currentEmbedding = embeddingService.embed(currentChunk.toString());
-                if (previousEmbedding != null) {
-                    float similarity = cosineSimilarity(previousEmbedding, currentEmbedding);
-                    // If similarity is low, mark as potential topic change
-                    if (similarity < similarityThreshold) {
-                        // Start fresh without carry-over
-                        currentChunk = new StringBuilder();
-                    }
-                }
-                previousEmbedding = embeddingService.embed(currentChunk.toString());
+            // If adding this sentence exceeds max AND current chunk is not empty, start new chunk
+            if (currentTokens + sentenceTokens > maxTokensPerChunk && currentChunk.length() > 0) {
+                chunks.add(currentChunk.toString());
                 currentChunk = new StringBuilder();
+                currentTokens = 0;
             }
 
             currentChunk.append(sentence);
+            currentTokens += sentenceTokens;
+
+            // If single sentence exceeds max, it becomes its own chunk
+            if (currentTokens > maxTokensPerChunk && currentChunk.length() == sentence.length()) {
+                chunks.add(sentence);
+                currentChunk = new StringBuilder();
+                currentTokens = 0;
+            }
         }
 
         // Flush remaining
         if (currentChunk.length() > 0) {
-            chunks.add(createChunk(currentChunk.toString(), documentId, kbId, chunkIndex));
+            chunks.add(currentChunk.toString());
         }
 
         return chunks;
@@ -95,17 +93,6 @@ public class SemanticChunkStrategy implements ChunkStrategy {
         return sentences;
     }
 
-    private float cosineSimilarity(float[] a, float[] b) {
-        if (a.length != b.length) return 0;
-        float dotProduct = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dotProduct += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-        return (float) (dotProduct / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10));
-    }
-
     @Override
     public String getStrategyName() {
         return "semantic";
@@ -113,10 +100,6 @@ public class SemanticChunkStrategy implements ChunkStrategy {
 
     public void setMaxTokensPerChunk(int maxTokensPerChunk) {
         this.maxTokensPerChunk = maxTokensPerChunk;
-    }
-
-    public void setSimilarityThreshold(double similarityThreshold) {
-        this.similarityThreshold = similarityThreshold;
     }
 
     private Chunk createChunk(String content, String documentId, String kbId, int chunkIndex) {

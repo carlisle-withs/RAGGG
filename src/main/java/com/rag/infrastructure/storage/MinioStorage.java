@@ -10,7 +10,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.PostConstruct;
 import java.io.ByteArrayInputStream;
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -60,11 +64,21 @@ public class MinioStorage {
 
     public String upload(String objectName, byte[] data, String contentType) {
         try {
-            ByteArrayInputStream bais = new ByteArrayInputStream(data);
+            try (ByteArrayInputStream bais = new ByteArrayInputStream(data)) {
+                return upload(objectName, bais, data.length, contentType);
+            }
+        } catch (Exception e) {
+            log.error("Failed to upload: {}", objectName, e);
+            throw new RuntimeException("Upload failed", e);
+        }
+    }
+
+    public String upload(String objectName, InputStream data, long size, String contentType) {
+        try {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(bucket)
                     .object(objectName)
-                    .stream(bais, data.length, -1)
+                    .stream(data, size, -1)
                     .contentType(contentType)
                     .build());
             log.info("Uploaded: {}/{}", bucket, objectName);
@@ -76,14 +90,40 @@ public class MinioStorage {
     }
 
     public byte[] download(String objectName) {
-        try (InputStream stream = minioClient.getObject(GetObjectArgs.builder()
-                .bucket(bucket)
-                .object(objectName)
-                .build())) {
+        try (InputStream stream = getObjectStream(objectName)) {
             return stream.readAllBytes();
         } catch (Exception e) {
             log.error("Failed to download: {}", objectName, e);
             throw new RuntimeException("Download failed", e);
+        }
+    }
+
+    public InputStream getObjectStream(String objectName) {
+        try {
+            return minioClient.getObject(GetObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectName)
+                    .build());
+        } catch (Exception e) {
+            log.error("Failed to open stream: {}", objectName, e);
+            throw new RuntimeException("Open stream failed", e);
+        }
+    }
+
+    public String downloadAsString(String objectName, Charset charset) {
+        try (InputStream stream = getObjectStream(objectName);
+             InputStreamReader reader = new InputStreamReader(stream, charset);
+             BufferedReader bufferedReader = new BufferedReader(reader)) {
+            StringBuilder content = new StringBuilder();
+            char[] buffer = new char[8192];
+            int read;
+            while ((read = bufferedReader.read(buffer)) != -1) {
+                content.append(buffer, 0, read);
+            }
+            return content.toString();
+        } catch (IOException e) {
+            log.error("Failed to read text: {}", objectName, e);
+            throw new RuntimeException("Download text failed", e);
         }
     }
 

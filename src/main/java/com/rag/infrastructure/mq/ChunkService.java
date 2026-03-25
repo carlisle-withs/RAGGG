@@ -1,42 +1,40 @@
 package com.rag.infrastructure.mq;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.domain.chunking.ChunkStrategy;
 import com.rag.domain.chunking.ChunkStrategyFactory;
 import com.rag.domain.event.DocumentEvent;
 import com.rag.domain.model.Chunk;
+import com.rag.domain.model.ChunkDTO;
 import com.rag.domain.model.Document;
 import com.rag.domain.repository.DocumentRepository;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 
 @Service
 public class ChunkService {
 
     private static final Logger log = LoggerFactory.getLogger(ChunkService.class);
-    private static final int QUEUE_CAPACITY = 10;
 
     private final MinioStorage minioStorage;
     private final DocumentEventProducer eventProducer;
     private final ChunkStrategyFactory chunkStrategyFactory;
     private final ObjectMapper objectMapper;
     private final DocumentRepository documentRepository;
-
-    private final BlockingQueue<String> messageQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public ChunkService(MinioStorage minioStorage,
                         DocumentEventProducer eventProducer,
@@ -50,35 +48,9 @@ public class ChunkService {
         this.documentRepository = documentRepository;
     }
 
-    @PostConstruct
-    public void init() {
-        executor.submit(this::processLoop);
-        log.info("ChunkService started with queue capacity: {}", QUEUE_CAPACITY);
-    }
-
-    private void processLoop() {
-        while (true) {
-            try {
-                String message = messageQueue.take();
-                doProcess(message);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                log.error("Error processing message", e);
-            }
-        }
-    }
-
     @KafkaListener(topics = KafkaTopics.DOCUMENT_PARSED, groupId = "${spring.kafka.consumer.group-id}-chunk")
     public void consume(String message) {
-        try {
-            messageQueue.put(message);
-            log.debug("Message queued, queue size: {}", messageQueue.size());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Failed to queue message", e);
-        }
+        doProcess(message);
     }
 
     @Transactional
@@ -107,14 +79,16 @@ public class ChunkService {
 
             // Download parsed text from MinIO
             tracer.info("下载解析后文本: parsedMinioPath=%s", event.getParsedMinioPath());
-            byte[] fileContent = minioStorage.download(event.getParsedMinioPath());
-            String text = new String(fileContent);
+            String text = minioStorage.downloadAsString(event.getParsedMinioPath(), StandardCharsets.UTF_8);
             tracer.info("文本下载完成: textLength=%d characters", text.length());
 
             // Get chunk strategy and params from event metadata
-            String strategyName = (String) event.getMetadata().getOrDefault("chunkStrategy", "fixed");
+            Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
+            String strategyName = String.valueOf(metadata.getOrDefault("chunkStrategy", "fixed"));
             @SuppressWarnings("unchecked")
-            Map<String, Object> strategyParams = (Map<String, Object>) event.getMetadata().get("chunkParams");
+            Map<String, Object> strategyParams = metadata.get("chunkParams") instanceof Map<?, ?> rawParams
+                    ? (Map<String, Object>) rawParams
+                    : Map.of();
 
             tracer.step("4.1 CHUNK_TEXT");
             tracer.info("开始分块: strategy=%s, params=%s", strategyName, strategyParams);
@@ -136,6 +110,7 @@ public class ChunkService {
             }
 
             tracer.stepComplete("4.1 CHUNK_TEXT", "chunkCount=" + chunks.size());
+            text = null;
 
             // Update status to CHUNKED
             documentRepository.findById(documentId).ifPresent(doc -> {
@@ -144,16 +119,30 @@ public class ChunkService {
                 documentRepository.save(doc);
             });
 
-            // Save chunks to MinIO
+            // Save chunks to MinIO (convert to DTOs to avoid JPA serialization issues)
             String chunksPath = event.getKbId() + "/" + event.getDocumentId() + "/chunks.json";
-            byte[] chunksJson = objectMapper.writeValueAsBytes(chunks);
-            minioStorage.upload(chunksPath, chunksJson, "application/json");
-            tracer.info("Chunks 已保存到 MinIO: path=%s, size=%d bytes", chunksPath, chunksJson.length);
+            Path tempChunksFile = Files.createTempFile("rag-chunks-", ".json");
+            try {
+                try (JsonGenerator generator = objectMapper.getFactory().createGenerator(Files.newOutputStream(tempChunksFile))) {
+                    generator.writeStartArray();
+                    for (Chunk chunk : chunks) {
+                        objectMapper.writeValue(generator, ChunkDTO.fromChunk(chunk));
+                    }
+                    generator.writeEndArray();
+                }
+                try (InputStream chunksStream = Files.newInputStream(tempChunksFile)) {
+                    minioStorage.upload(chunksPath, chunksStream, Files.size(tempChunksFile), "application/json");
+                }
+                tracer.info("Chunks 已保存到 MinIO: path=%s, size=%d bytes", chunksPath, Files.size(tempChunksFile));
+            } finally {
+                Files.deleteIfExists(tempChunksFile);
+            }
 
             // Send chunks to next stage
             tracer.step("4.2 SEND_KAFKA_MESSAGE");
             event.setEventType(DocumentEvent.EventType.CHUNKED);
-            event.getMetadata().put("chunksMinioPath", chunksPath);
+            metadata.put("chunksMinioPath", chunksPath);
+            event.setMetadata(metadata);
             tracer.info("发送 Kafka 消息: topic=document-chunked, chunkCount=%d", chunks.size());
             eventProducer.sendChunked(event);
 

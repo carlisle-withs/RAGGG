@@ -6,7 +6,6 @@ import com.rag.domain.model.Document;
 import com.rag.domain.repository.DocumentRepository;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
-import jakarta.annotation.PostConstruct;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,25 +13,21 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 @Service
 public class ParseService {
 
     private static final Logger log = LoggerFactory.getLogger(ParseService.class);
-    private static final int QUEUE_CAPACITY = 10;
 
     private final MinioStorage minioStorage;
     private final DocumentEventProducer eventProducer;
     private final ObjectMapper objectMapper;
     private final Tika tika;
     private final DocumentRepository documentRepository;
-
-    private final BlockingQueue<String> messageQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public ParseService(MinioStorage minioStorage,
                        DocumentEventProducer eventProducer,
@@ -45,35 +40,9 @@ public class ParseService {
         this.tika = new Tika();
     }
 
-    @PostConstruct
-    public void init() {
-        executor.submit(this::processLoop);
-        log.info("ParseService started with queue capacity: {}", QUEUE_CAPACITY);
-    }
-
-    private void processLoop() {
-        while (true) {
-            try {
-                String message = messageQueue.take();
-                doProcess(message);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                log.error("Error processing message", e);
-            }
-        }
-    }
-
     @KafkaListener(topics = KafkaTopics.DOCUMENT_UPLOAD, groupId = "${spring.kafka.consumer.group-id}-parse")
     public void consume(String message) {
-        try {
-            messageQueue.put(message);
-            log.debug("Message queued, queue size: {}", messageQueue.size());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Failed to queue message", e);
-        }
+        doProcess(message);
     }
 
     @Transactional
@@ -102,20 +71,25 @@ public class ParseService {
 
             // Download from MinIO
             tracer.info("下载原始文件: minioPath=%s", event.getMinioPath());
-            byte[] fileContent = minioStorage.download(event.getMinioPath());
-            tracer.info("文件下载完成: size=%d bytes", fileContent.length);
-
-            // Extract text using Tika
-            tracer.step("3.1 EXTRACT_TEXT");
-            tracer.info("使用 Tika 解析文档...");
-            String parsedText = tika.parseToString(new java.io.ByteArrayInputStream(fileContent));
-            tracer.info("文本提取完成: textLength=%d characters", parsedText.length());
-
-            // Upload parsed text to MinIO
             String parsedPath = event.getKbId() + "/" + event.getDocumentId() + "/parsed.txt";
-            tracer.info("上传解析后文本到 MinIO: path=%s", parsedPath);
-            minioStorage.upload(parsedPath, parsedText.getBytes(), "text/plain");
-            tracer.stepComplete("3.1 EXTRACT_TEXT", "textLength=" + parsedText.length());
+            int textLength;
+            Path tempParsedFile = Files.createTempFile("rag-parsed-", ".txt");
+            try (InputStream fileStream = minioStorage.getObjectStream(event.getMinioPath())) {
+                tracer.step("3.1 EXTRACT_TEXT");
+                tracer.info("使用 Tika 解析文档...");
+                String parsedText = tika.parseToString(fileStream);
+                textLength = parsedText.length();
+                tracer.info("文本提取完成: textLength=%d characters", textLength);
+
+                tracer.info("上传解析后文本到 MinIO: path=%s", parsedPath);
+                Files.writeString(tempParsedFile, parsedText, StandardCharsets.UTF_8);
+                try (InputStream parsedStream = Files.newInputStream(tempParsedFile)) {
+                    minioStorage.upload(parsedPath, parsedStream, Files.size(tempParsedFile), "text/plain");
+                }
+                tracer.stepComplete("3.1 EXTRACT_TEXT", "textLength=" + textLength);
+            } finally {
+                Files.deleteIfExists(tempParsedFile);
+            }
 
             // Update status to PARSED
             documentRepository.findById(documentId).ifPresent(doc -> {

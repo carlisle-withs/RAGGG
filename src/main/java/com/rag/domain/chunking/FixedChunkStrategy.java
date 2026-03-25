@@ -16,18 +16,28 @@ public class FixedChunkStrategy implements ChunkStrategy {
     @Override
     public List<Chunk> chunk(String text, String documentId, String kbId) {
         List<Chunk> chunks = new ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            return chunks;
+        }
+
+        int effectiveChunkSize = Math.max(1, chunkSize);
+        int effectiveChunkOverlap = Math.max(0, Math.min(chunkOverlap, effectiveChunkSize - 1));
+        int step = Math.max(1, effectiveChunkSize - effectiveChunkOverlap);
         int index = 0;
         int chunkIndex = 0;
 
         while (index < text.length()) {
-            int end = Math.min(index + chunkSize, text.length());
+            int end = Math.min(index + effectiveChunkSize, text.length());
             String chunkText = text.substring(index, end);
 
-            Chunk chunk = createChunk(new String(chunkText), documentId, kbId, chunkIndex);
+            Chunk chunk = createChunk(chunkText, documentId, kbId, chunkIndex);
             chunks.add(chunk);
 
-            index = end - chunkOverlap;
-            if (index <= 0) index = end;
+            if (end >= text.length()) {
+                break;
+            }
+
+            index += step;
             chunkIndex++;
         }
 
