@@ -29,7 +29,7 @@ export const useDocumentStore = defineStore('document', () => {
 
       const formData = new FormData()
       formData.append('file', fileItem.file)
-      formData.append('kbId', 'default')
+      formData.append('kbId', chunkOptions.kbId || 'default')
       formData.append('chunkStrategy', chunkOptions.chunkStrategy || 'fixed')
 
       // Add chunk strategy params

@@ -18,7 +18,7 @@ spring:
       properties:
         max.poll.interval.ms: 1800000
     listener:
-      concurrency: 1
+      concurrency: 3
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer

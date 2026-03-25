@@ -10,15 +10,15 @@
         <button class="admin-nav-item" :class="{ active: activeTab === 'documents' }" @click="activeTab = 'documents'">
           📄 文档管理
         </button>
-        <button class="admin-nav-item" :class="{ active: activeTab === 'chunking' }" @click="activeTab = 'chunking'">
-          ✂️ 分块配置
+        <button class="admin-nav-item" :class="{ active: activeTab === 'knowledgeBase' }" @click="activeTab = 'knowledgeBase'">
+          🗃️ 知识库管理
         </button>
         <button class="admin-nav-item" :class="{ active: activeTab === 'system' }" @click="activeTab = 'system'">
           🔧 系统配置
         </button>
       </nav>
       <div class="admin-footer">
-        <button class="back-btn" @click="$emit('back')">← 返回对话</button>
+        <button class="back-btn" @click="goBack">← 返回对话</button>
       </div>
     </aside>
 
@@ -34,11 +34,16 @@
 
         <!-- 上传区域 -->
         <div class="upload-area">
-          <label class="upload-btn primary">
+          <span class="upload-label">上传到:</span>
+          <select v-model="selectedUploadKbId" class="search-input" style="max-width: 200px;">
+            <option v-for="kb in knowledgeBases" :key="kb.id" :value="kb.id">{{ kb.name }}</option>
+          </select>
+          <label class="upload-btn primary" v-if="knowledgeBases.length > 0">
             <span>📤</span>
             <span>批量上传文档</span>
             <input type="file" @change="handleFileUpload" accept=".pdf,.txt,.doc,.docx" multiple hidden>
           </label>
+          <span class="upload-hint" v-else>请先创建知识库</span>
           <span class="upload-hint">支持 PDF、TXT、DOC、DOCX，可选择多个文件</span>
           <span class="upload-status" :class="uploadStatusClass" v-if="uploadStatus">{{ uploadStatus }}</span>
         </div>
@@ -66,7 +71,7 @@
             <tbody>
               <tr v-for="doc in filteredDocuments" :key="doc.id">
                 <td>{{ doc.fileName }}</td>
-                <td>{{ doc.kbId }}</td>
+                <td>{{ getKBName(doc.kbId) }}</td>
                 <td>{{ doc.chunkStrategy || 'default' }}</td>
                 <td>
                   <span class="status-badge" :class="'status-' + doc.status">{{ formatStatus(doc.status) }}</span>
@@ -76,76 +81,161 @@
                   <button class="action-btn delete" @click="removeDocument(doc.id)">删除</button>
                 </td>
               </tr>
-              <tr v-if="documents.length === 0">
-                <td colspan="6" class="empty-cell">暂无文档</td>
+              <tr v-if="filteredDocuments.length === 0">
+                <td colspan="6" class="empty-cell">该知识库暂无文档，请上传文档</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- 分块配置 -->
-      <div v-if="activeTab === 'chunking'" class="admin-section">
-        <h2>分块策略配置</h2>
+      <!-- 知识库管理 -->
+      <div v-if="activeTab === 'knowledgeBase'" class="admin-section">
+        <h2>知识库管理</h2>
+        <div class="section-header">
+          <button class="create-btn" @click="showCreateKB = true">新建知识库</button>
+        </div>
 
-        <div class="config-form">
-          <div class="form-group">
-            <label>默认分块策略</label>
-            <select v-model="chunkConfig.strategy">
-              <option value="fixed">固定分块</option>
-              <option value="structural">结构分块</option>
-              <option value="semantic">语义分块</option>
-            </select>
-          </div>
+        <div class="kb-list" v-if="knowledgeBases.length > 0">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>描述</th>
+                <th>分块策略</th>
+                <th>文档数</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="kb in knowledgeBases" :key="kb.id">
+                <td>{{ kb.name }}</td>
+                <td>{{ kb.description || '-' }}</td>
+                <td>{{ kb.chunkStrategy || 'intelligent' }}</td>
+                <td>{{ kb.documentCount }}</td>
+                <td>{{ formatDate(kb.createdAt) }}</td>
+                <td>
+                  <button class="action-btn edit" @click="editKB(kb)">编辑</button>
+                  <button class="action-btn delete" @click="removeKB(kb.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="empty-state">
+          <p>暂无知识库，点击"新建知识库"创建</p>
+        </div>
 
-          <!-- 固定分块参数 -->
-          <div v-if="chunkConfig.strategy === 'fixed'" class="params-panel">
-            <h3>固定分块参数</h3>
+        <!-- Create KB Modal -->
+        <div class="modal" v-if="showCreateKB" @click.self="showCreateKB = false">
+          <div class="modal-content">
+            <h3>新建知识库</h3>
             <div class="form-group">
-              <label>块大小 (字符数)</label>
-              <input type="number" v-model="chunkConfig.chunkSize" min="100" max="5000">
-              <span class="hint">每个文本块的字符数，建议 300-1000</span>
+              <label>名称</label>
+              <input v-model="newKB.name" type="text" placeholder="知识库名称" />
             </div>
             <div class="form-group">
-              <label>块重叠 (字符数)</label>
-              <input type="number" v-model="chunkConfig.chunkOverlap" min="0" max="500">
-              <span class="hint">相邻块之间的重叠字符数，用于保持上下文</span>
+              <label>描述</label>
+              <textarea v-model="newKB.description" placeholder="知识库描述（可选）"></textarea>
             </div>
-          </div>
-
-          <!-- 结构分块参数 -->
-          <div v-if="chunkConfig.strategy === 'structural'" class="params-panel">
-            <h3>结构分块参数</h3>
             <div class="form-group">
+              <label>默认分块策略</label>
+              <select v-model="newKB.chunkStrategy">
+                <option value="fixed">固定分块</option>
+                <option value="structural">结构分块</option>
+                <option value="semantic">语义分块</option>
+                <option value="hybrid">混合分块</option>
+                <option value="intelligent">智能分块</option>
+              </select>
+            </div>
+            <!-- Fixed chunk params -->
+            <div v-if="newKB.chunkStrategy === 'fixed'" class="form-group">
+              <label>块大小</label>
+              <input v-model.number="newKB.chunkSize" type="number" min="100" max="5000" />
+            </div>
+            <div v-if="newKB.chunkStrategy === 'fixed'" class="form-group">
+              <label>块重叠</label>
+              <input v-model.number="newKB.chunkOverlap" type="number" min="0" max="500" />
+            </div>
+            <!-- Structural chunk params -->
+            <div v-if="newKB.chunkStrategy === 'structural'" class="form-group">
               <label>最小段落长度</label>
-              <input type="number" v-model="chunkConfig.minParagraphLength" min="10" max="1000">
-              <span class="hint">最小段落字符数，小于此值会合并</span>
+              <input v-model.number="newKB.minParagraphLength" type="number" min="10" max="1000" />
             </div>
-            <div class="form-group">
+            <div v-if="newKB.chunkStrategy === 'structural'" class="form-group">
               <label>最大段落长度</label>
-              <input type="number" v-model="chunkConfig.maxParagraphLength" min="100" max="10000">
-              <span class="hint">最大段落字符数，超过会拆分</span>
+              <input v-model.number="newKB.maxParagraphLength" type="number" min="100" max="10000" />
             </div>
-          </div>
-
-          <!-- 语义分块参数 -->
-          <div v-if="chunkConfig.strategy === 'semantic'" class="params-panel">
-            <h3>语义分块参数</h3>
-            <div class="form-group">
-              <label>最大 Token 数</label>
-              <input type="number" v-model="chunkConfig.maxTokensPerChunk" min="50" max="2000">
-              <span class="hint">每个块的 最大Token数</span>
+            <!-- Semantic chunk params -->
+            <div v-if="newKB.chunkStrategy === 'semantic'" class="form-group">
+              <label>最大Token数</label>
+              <input v-model.number="newKB.maxTokensPerChunk" type="number" min="50" max="2000" />
             </div>
-            <div class="form-group">
+            <div v-if="newKB.chunkStrategy === 'semantic'" class="form-group">
               <label>相似度阈值</label>
-              <input type="number" v-model="chunkConfig.similarityThreshold" min="0.1" max="1.0" step="0.1">
-              <span class="hint">语义相似度阈值，低于此值会断开</span>
+              <input v-model.number="newKB.similarityThreshold" type="number" min="0.1" max="1.0" step="0.1" />
+            </div>
+            <div class="form-actions">
+              <button @click="showCreateKB = false">取消</button>
+              <button class="save-btn" @click="createKB">创建</button>
             </div>
           </div>
+        </div>
 
-          <div class="form-actions">
-            <button class="save-btn" @click="saveChunkConfig">保存配置</button>
-            <button class="reset-btn" @click="resetChunkConfig">重置</button>
+        <!-- Edit KB Modal -->
+        <div class="modal" v-if="showEditKB" @click.self="showEditKB = false">
+          <div class="modal-content">
+            <h3>编辑知识库</h3>
+            <div class="form-group">
+              <label>名称</label>
+              <input v-model="editKBData.name" type="text" placeholder="知识库名称" />
+            </div>
+            <div class="form-group">
+              <label>描述</label>
+              <textarea v-model="editKBData.description" placeholder="知识库描述（可选）"></textarea>
+            </div>
+            <div class="form-group">
+              <label>分块策略</label>
+              <select v-model="editKBData.chunkStrategy">
+                <option value="fixed">固定分块</option>
+                <option value="structural">结构分块</option>
+                <option value="semantic">语义分块</option>
+                <option value="hybrid">混合分块</option>
+                <option value="intelligent">智能分块</option>
+              </select>
+            </div>
+            <!-- Fixed chunk params -->
+            <div v-if="editKBData.chunkStrategy === 'fixed'" class="form-group">
+              <label>块大小</label>
+              <input v-model.number="editKBData.chunkSize" type="number" min="100" max="5000" />
+            </div>
+            <div v-if="editKBData.chunkStrategy === 'fixed'" class="form-group">
+              <label>块重叠</label>
+              <input v-model.number="editKBData.chunkOverlap" type="number" min="0" max="500" />
+            </div>
+            <!-- Structural chunk params -->
+            <div v-if="editKBData.chunkStrategy === 'structural'" class="form-group">
+              <label>最小段落长度</label>
+              <input v-model.number="editKBData.minParagraphLength" type="number" min="10" max="1000" />
+            </div>
+            <div v-if="editKBData.chunkStrategy === 'structural'" class="form-group">
+              <label>最大段落长度</label>
+              <input v-model.number="editKBData.maxParagraphLength" type="number" min="100" max="10000" />
+            </div>
+            <!-- Semantic chunk params -->
+            <div v-if="editKBData.chunkStrategy === 'semantic'" class="form-group">
+              <label>最大Token数</label>
+              <input v-model.number="editKBData.maxTokensPerChunk" type="number" min="50" max="2000" />
+            </div>
+            <div v-if="editKBData.chunkStrategy === 'semantic'" class="form-group">
+              <label>相似度阈值</label>
+              <input v-model.number="editKBData.similarityThreshold" type="number" min="0.1" max="1.0" step="0.1" />
+            </div>
+            <div class="form-actions">
+              <button @click="showEditKB = false">取消</button>
+              <button class="save-btn" @click="saveKB">保存</button>
+            </div>
           </div>
         </div>
       </div>
@@ -207,9 +297,14 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { uploadDocument, getDocuments, deleteDocument } from '../api'
+import { useRouter } from 'vue-router'
+import { uploadDocument, getDocuments, deleteDocument, getKnowledgeBases, createKnowledgeBase, deleteKnowledgeBase } from '../api'
 
-defineEmits(['back'])
+const router = useRouter()
+
+const goBack = () => {
+  router.push('/')
+}
 
 const activeTab = ref('documents')
 const searchQuery = ref('')
@@ -217,8 +312,26 @@ const documents = ref([])
 const uploadStatus = ref('')
 const uploadStatusClass = ref('')
 const uploadingFiles = ref([])
-const chunkConfig = ref({
-  strategy: 'fixed',
+const knowledgeBases = ref([])
+const showCreateKB = ref(false)
+const showEditKB = ref(false)
+const selectedUploadKbId = ref('')
+const newKB = ref({
+  name: '',
+  description: '',
+  chunkStrategy: 'intelligent',
+  chunkSize: 512,
+  chunkOverlap: 50,
+  minParagraphLength: 50,
+  maxParagraphLength: 2000,
+  maxTokensPerChunk: 512,
+  similarityThreshold: 0.7
+})
+const editKBData = ref({
+  id: '',
+  name: '',
+  description: '',
+  chunkStrategy: 'intelligent',
   chunkSize: 512,
   chunkOverlap: 50,
   minParagraphLength: 50,
@@ -240,13 +353,22 @@ const systemStats = ref({
 })
 
 const filteredDocuments = computed(() => {
-  if (!searchQuery.value) return documents.value
+  let docs = documents.value
+  if (selectedUploadKbId.value) {
+    docs = docs.filter(d => d.kbId === selectedUploadKbId.value)
+  }
+  if (!searchQuery.value) return docs
   const query = searchQuery.value.toLowerCase()
-  return documents.value.filter(d =>
+  return docs.filter(d =>
     d.fileName.toLowerCase().includes(query) ||
-    d.kbId.toLowerCase().includes(query)
+    (d.kbId && d.kbId.toLowerCase().includes(query))
   )
 })
+
+const getKBName = (kbId) => {
+  const kb = knowledgeBases.value.find(k => k.id === kbId)
+  return kb ? kb.name : kbId || '-'
+}
 
 const loadDocuments = async () => {
   try {
@@ -257,6 +379,99 @@ const loadDocuments = async () => {
     console.error('Failed to load documents:', err)
     documents.value = []
     systemStats.value.totalDocuments = 0
+  }
+}
+
+const loadKBs = async () => {
+  try {
+    const response = await getKnowledgeBases()
+    knowledgeBases.value = response.data
+    // Always set to first KB if available
+    if (response.data.length > 0) {
+      selectedUploadKbId.value = response.data[0].id
+    }
+  } catch (err) {
+    console.error('Failed to load knowledge bases:', err)
+    knowledgeBases.value = []
+  }
+}
+
+const createKB = async () => {
+  if (!newKB.value.name.trim()) return
+  try {
+    await createKnowledgeBase({
+      name: newKB.value.name,
+      description: newKB.value.description,
+      chunkStrategy: newKB.value.chunkStrategy,
+      chunkSize: newKB.value.chunkSize,
+      chunkOverlap: newKB.value.chunkOverlap,
+      minParagraphLength: newKB.value.minParagraphLength,
+      maxParagraphLength: newKB.value.maxParagraphLength,
+      maxTokensPerChunk: newKB.value.maxTokensPerChunk,
+      similarityThreshold: newKB.value.similarityThreshold
+    })
+    newKB.value = {
+      name: '',
+      description: '',
+      chunkStrategy: 'intelligent',
+      chunkSize: 512,
+      chunkOverlap: 50,
+      minParagraphLength: 50,
+      maxParagraphLength: 2000,
+      maxTokensPerChunk: 512,
+      similarityThreshold: 0.7
+    }
+    showCreateKB.value = false
+    loadKBs()
+  } catch (err) {
+    alert('创建失败: ' + err.message)
+  }
+}
+
+const removeKB = async (id) => {
+  if (!confirm('确定要删除这个知识库吗？')) return
+  try {
+    await deleteKnowledgeBase(id)
+    loadKBs()
+  } catch (err) {
+    alert('删除失败: ' + err.message)
+  }
+}
+
+const editKB = (kb) => {
+  editKBData.value = {
+    id: kb.id,
+    name: kb.name,
+    description: kb.description || '',
+    chunkStrategy: kb.chunkStrategy || 'intelligent',
+    chunkSize: kb.chunkSize || 512,
+    chunkOverlap: kb.chunkOverlap || 50,
+    minParagraphLength: kb.minParagraphLength || 50,
+    maxParagraphLength: kb.maxParagraphLength || 2000,
+    maxTokensPerChunk: kb.maxTokensPerChunk || 512,
+    similarityThreshold: kb.similarityThreshold || 0.7
+  }
+  showEditKB.value = true
+}
+
+const saveKB = async () => {
+  if (!editKBData.value.name.trim()) return
+  try {
+    await updateKnowledgeBase(editKBData.value.id, {
+      name: editKBData.value.name,
+      description: editKBData.value.description,
+      chunkStrategy: editKBData.value.chunkStrategy,
+      chunkSize: editKBData.value.chunkSize,
+      chunkOverlap: editKBData.value.chunkOverlap,
+      minParagraphLength: editKBData.value.minParagraphLength,
+      maxParagraphLength: editKBData.value.maxParagraphLength,
+      maxTokensPerChunk: editKBData.value.maxTokensPerChunk,
+      similarityThreshold: editKBData.value.similarityThreshold
+    })
+    showEditKB.value = false
+    loadKBs()
+  } catch (err) {
+    alert('保存失败: ' + err.message)
   }
 }
 
@@ -275,8 +490,15 @@ const handleFileUpload = async (e) => {
   const files = Array.from(e.target.files)
   if (files.length === 0) return
 
-  // 从 localStorage 获取保存的分块配置
-  const savedChunkConfig = JSON.parse(localStorage.getItem('chunkConfig') || '{}')
+  // 获取选中知识库的分块配置
+  const selectedKB = knowledgeBases.value.find(k => k.id === selectedUploadKbId.value)
+  const chunkStrategy = selectedKB?.chunkStrategy || 'intelligent'
+  const chunkSize = selectedKB?.chunkSize
+  const chunkOverlap = selectedKB?.chunkOverlap
+  const minParagraphLength = selectedKB?.minParagraphLength
+  const maxParagraphLength = selectedKB?.maxParagraphLength
+  const maxTokensPerChunk = selectedKB?.maxTokensPerChunk
+  const similarityThreshold = selectedKB?.similarityThreshold
 
   // 显示上传状态
   uploadingFiles.value = files.map(f => ({ name: f.name, status: '等待上传' }))
@@ -293,14 +515,14 @@ const handleFileUpload = async (e) => {
 
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('kbId', 'default')
-    formData.append('chunkStrategy', savedChunkConfig.strategy || 'fixed')
-    if (savedChunkConfig.chunkSize) formData.append('chunkSize', savedChunkConfig.chunkSize)
-    if (savedChunkConfig.chunkOverlap) formData.append('chunkOverlap', savedChunkConfig.chunkOverlap)
-    if (savedChunkConfig.minParagraphLength) formData.append('minParagraphLength', savedChunkConfig.minParagraphLength)
-    if (savedChunkConfig.maxParagraphLength) formData.append('maxParagraphLength', savedChunkConfig.maxParagraphLength)
-    if (savedChunkConfig.maxTokensPerChunk) formData.append('maxTokensPerChunk', savedChunkConfig.maxTokensPerChunk)
-    if (savedChunkConfig.similarityThreshold) formData.append('similarityThreshold', savedChunkConfig.similarityThreshold)
+    formData.append('kbId', selectedUploadKbId.value || 'default')
+    formData.append('chunkStrategy', chunkStrategy)
+    if (chunkSize) formData.append('chunkSize', chunkSize)
+    if (chunkOverlap) formData.append('chunkOverlap', chunkOverlap)
+    if (minParagraphLength) formData.append('minParagraphLength', minParagraphLength)
+    if (maxParagraphLength) formData.append('maxParagraphLength', maxParagraphLength)
+    if (maxTokensPerChunk) formData.append('maxTokensPerChunk', maxTokensPerChunk)
+    if (similarityThreshold) formData.append('similarityThreshold', similarityThreshold)
 
     uploadStatus.value = `正在上传 ${i + 1}/${files.length} 个文件...`
 
@@ -325,23 +547,6 @@ const handleFileUpload = async (e) => {
   }, 3000)
 
   e.target.value = ''
-}
-
-const saveChunkConfig = () => {
-  localStorage.setItem('chunkConfig', JSON.stringify(chunkConfig.value))
-  alert('配置已保存')
-}
-
-const resetChunkConfig = () => {
-  chunkConfig.value = {
-    strategy: 'fixed',
-    chunkSize: 512,
-    chunkOverlap: 50,
-    minParagraphLength: 50,
-    maxParagraphLength: 2000,
-    maxTokensPerChunk: 512,
-    similarityThreshold: 0.7
-  }
 }
 
 const formatDate = (dateStr) => {
@@ -369,11 +574,7 @@ let refreshTimer = null
 
 onMounted(() => {
   loadDocuments()
-  // 从 localStorage 加载保存的配置
-  const saved = localStorage.getItem('chunkConfig')
-  if (saved) {
-    chunkConfig.value = JSON.parse(saved)
-  }
+  loadKBs()
   // 定时刷新文档列表，每 3 秒更新一次状态
   refreshTimer = setInterval(loadDocuments, 3000)
 })
@@ -495,9 +696,19 @@ onUnmounted(() => {
   background: #3a7bc8;
 }
 
+.upload-btn.disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
 .upload-hint {
   color: #999;
   font-size: 13px;
+}
+
+.upload-label {
+  font-weight: 500;
+  color: #333;
 }
 
 .upload-status {
@@ -592,9 +803,16 @@ onUnmounted(() => {
 }
 
 .doc-table th, .doc-table td {
-  padding: 14px 16px;
+  padding: 12px 16px;
   text-align: left;
   border-bottom: 1px solid #eee;
+}
+
+.doc-table td:first-child {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .doc-table th {
@@ -629,6 +847,14 @@ onUnmounted(() => {
   color: #fff;
   padding: 6px 12px;
   font-size: 12px;
+}
+
+.action-btn.edit {
+  background: #4a90e2;
+  color: #fff;
+  padding: 6px 12px;
+  font-size: 12px;
+  margin-right: 8px;
 }
 
 .empty-cell {
@@ -751,5 +977,112 @@ onUnmounted(() => {
 .stat-label {
   font-size: 13px;
   color: #666;
+}
+
+.create-btn {
+  padding: 10px 20px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.create-btn:hover {
+  background: #40a9ff;
+}
+
+.kb-list {
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #999;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90%;
+}
+
+.modal-content h3 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+}
+
+.modal-content .form-group {
+  margin-bottom: 16px;
+}
+
+.modal-content .form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: #333;
+}
+
+.modal-content .form-group input,
+.modal-content .form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.modal-content .form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.modal-content .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.modal-content .form-actions button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-content .form-actions .save-btn {
+  background: #1890ff;
+  color: white;
+  border-color: #1890ff;
+}
+
+.modal-content .form-actions .save-btn:hover {
+  background: #40a9ff;
 }
 </style>

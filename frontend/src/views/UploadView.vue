@@ -4,11 +4,22 @@
 
     <div class="chunk-settings">
       <div class="setting-row">
+        <label class="setting-label">知识库</label>
+        <select v-model="selectedKbId" class="setting-select">
+          <option v-for="kb in kbStore.knowledgeBases" :key="kb.id" :value="kb.id">
+            {{ kb.name }}
+          </option>
+        </select>
+      </div>
+
+      <div class="setting-row">
         <label class="setting-label">分块策略</label>
         <select v-model="chunkStrategy" class="setting-select">
           <option value="fixed">固定分块</option>
           <option value="structural">结构分块</option>
           <option value="semantic">语义分块</option>
+          <option value="hybrid">混合分块</option>
+          <option value="intelligent">智能分块</option>
         </select>
       </div>
 
@@ -52,6 +63,27 @@
           <input type="number" v-model="similarityThreshold" class="setting-input" min="0.1" max="1.0" step="0.1" />
         </div>
       </div>
+
+      <!-- Hybrid chunk params -->
+      <div v-if="chunkStrategy === 'hybrid'" class="params-section">
+        <div class="setting-row">
+          <label class="setting-label">最大Token数</label>
+          <input type="number" v-model="maxTokensPerChunk" class="setting-input" min="100" max="2000" />
+          <span class="setting-unit">Token</span>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">最小段落长度</label>
+          <input type="number" v-model="minParagraphLength" class="setting-input" min="10" max="500" />
+          <span class="setting-unit">字符</span>
+        </div>
+      </div>
+
+      <!-- Intelligent chunk params -->
+      <div v-if="chunkStrategy === 'intelligent'" class="params-section">
+        <div class="setting-row">
+          <span class="setting-hint">智能分块：根据文档类型自动选择最优策略</span>
+        </div>
+      </div>
     </div>
 
     <div class="drop-zone"
@@ -89,7 +121,7 @@
 
     <button class="upload-btn"
             @click="uploadFiles"
-            :disabled="files.length === 0 || uploading || !hasPendingFiles">
+            :disabled="files.length === 0 || uploading || !hasPendingFiles || !selectedKbId">
       <span v-if="uploading" class="loading-spinner btn-spinner"></span>
       <span v-else>上传到知识库</span>
     </button>
@@ -97,18 +129,50 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useDocumentStore } from '../stores/document'
+import { useKnowledgeBaseStore } from '../stores/knowledgeBase'
 import { storeToRefs } from 'pinia'
 
 const documentStore = useDocumentStore()
+const kbStore = useKnowledgeBaseStore()
 const { files, uploading } = storeToRefs(documentStore)
+
+const selectedKbId = ref('')
+const kbLoaded = ref(false)
+
+onMounted(async () => {
+  await kbStore.fetchKBs()
+  kbLoaded.value = true
+  if (kbStore.knowledgeBases.length > 0) {
+    selectedKbId.value = kbStore.knowledgeBases[0].id
+    applyKBChunkStrategy(kbStore.knowledgeBases[0])
+  }
+})
+
+// Watch for selected KB changes and apply its default chunk strategy
+watch(selectedKbId, (newId) => {
+  const kb = kbStore.knowledgeBases.find(k => k.id === newId)
+  if (kb) {
+    applyKBChunkStrategy(kb)
+  }
+})
+
+const applyKBChunkStrategy = (kb) => {
+  chunkStrategy.value = kb.chunkStrategy || 'intelligent'
+  chunkSize.value = kb.chunkSize || 512
+  chunkOverlap.value = kb.chunkOverlap || 50
+  minParagraphLength.value = kb.minParagraphLength || 50
+  maxParagraphLength.value = kb.maxParagraphLength || 2000
+  maxTokensPerChunk.value = kb.maxTokensPerChunk || 512
+  similarityThreshold.value = kb.similarityThreshold || 0.7
+}
 
 const isDragover = ref(false)
 const fileInputRef = ref(null)
 
 // Chunk strategy settings
-const chunkStrategy = ref('fixed')
+const chunkStrategy = ref('intelligent')
 const chunkSize = ref(512)
 const chunkOverlap = ref(50)
 const minParagraphLength = ref(50)
@@ -147,6 +211,7 @@ const removeFile = (id) => {
 
 const uploadFiles = () => {
   documentStore.uploadFiles({
+    kbId: selectedKbId.value || 'default',
     chunkStrategy: chunkStrategy.value,
     chunkSize: chunkSize.value,
     chunkOverlap: chunkOverlap.value,
@@ -214,5 +279,11 @@ const formatFileSize = (bytes) => {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #ddd;
+}
+
+.setting-hint {
+  color: #666;
+  font-size: 14px;
+  font-style: italic;
 }
 </style>

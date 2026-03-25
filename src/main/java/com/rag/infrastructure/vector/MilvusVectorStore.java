@@ -9,7 +9,6 @@ import io.milvus.v2.common.ConsistencyLevel;
 import io.milvus.v2.common.DataType;
 import io.milvus.v2.common.IndexParam;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
-import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
 import io.milvus.v2.service.collection.request.LoadCollectionReq;
 import io.milvus.v2.service.vector.request.InsertReq;
@@ -50,21 +49,16 @@ public class MilvusVectorStore {
             );
             log.info("Collection exists: {}", hasCollection);
 
-            if (hasCollection) {
-                log.info("Dropping existing collection: {}", collectionName);
-                milvusClient.dropCollection(
-                        DropCollectionReq.builder().collectionName(collectionName).build()
+            if (!hasCollection) {
+                createCollection();
+                log.info("Collection created successfully");
+            } else {
+                // Ensure collection is loaded
+                milvusClient.loadCollection(
+                        LoadCollectionReq.builder().collectionName(collectionName).build()
                 );
-                log.info("Collection dropped");
+                log.info("Collection already exists, loaded for use");
             }
-
-            createCollection();
-
-            // Verify collection was created
-            boolean nowExists = milvusClient.hasCollection(
-                    HasCollectionReq.builder().collectionName(collectionName).build()
-            );
-            log.info("Collection created, exists now: {}", nowExists);
 
         } catch (Exception e) {
             log.error("Failed to initialize Milvus", e);

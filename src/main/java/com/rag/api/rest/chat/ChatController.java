@@ -1,7 +1,11 @@
 package com.rag.api.rest.chat;
 
 import com.rag.application.chat.ChatApplicationService;
+import com.rag.domain.model.User;
+import com.rag.domain.repository.KnowledgeBaseRepository;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -13,9 +17,11 @@ import java.util.UUID;
 public class ChatController {
 
     private final ChatApplicationService chatService;
+    private final KnowledgeBaseRepository kbRepository;
 
-    public ChatController(ChatApplicationService chatService) {
+    public ChatController(ChatApplicationService chatService, KnowledgeBaseRepository kbRepository) {
         this.chatService = chatService;
+        this.kbRepository = kbRepository;
     }
 
     @PostMapping("/chat")
@@ -33,6 +39,10 @@ public class ChatController {
                 ? request.kbIds().get(0)
                 : null;
 
+        if (kbId != null && !hasKbAccess(kbId)) {
+            return ResponseEntity.status(403).build();
+        }
+
         ChatApplicationService.ChatResponse response = chatService.chat(request.message(), kbId);
 
         return ResponseEntity.ok(new ChatResponse(
@@ -45,6 +55,24 @@ public class ChatController {
                 null,
                 null
         ));
+    }
+
+    private boolean hasKbAccess(String kbId) {
+        if (isAdmin()) return true;
+        User currentUser = getCurrentUser();
+        return kbRepository.findById(kbId)
+                .map(kb -> kb.getOwner() != null && kb.getOwner().getId().equals(currentUser.getId()))
+                .orElse(false);
+    }
+
+    private boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+    }
+
+    private User getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return (User) auth.getPrincipal();
     }
 
     public record ChatRequest(String message, String conversationId, String userId, List<String> kbIds, Boolean stream) {}

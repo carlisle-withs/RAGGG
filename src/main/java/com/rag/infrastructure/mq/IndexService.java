@@ -7,8 +7,10 @@ import com.rag.domain.event.DocumentEvent;
 import com.rag.domain.model.Chunk;
 import com.rag.domain.model.ChunkDTO;
 import com.rag.domain.model.Document;
+import com.rag.domain.model.KnowledgeBase;
 import com.rag.domain.repository.DocumentRepository;
 import com.rag.domain.repository.ChunkRepository;
+import com.rag.domain.repository.KnowledgeBaseRepository;
 import com.rag.infrastructure.llm.EmbeddingService;
 import com.rag.infrastructure.search.ElasticsearchSearch;
 import com.rag.infrastructure.storage.MinioStorage;
@@ -32,6 +34,7 @@ public class IndexService {
 
     private final DocumentRepository documentRepository;
     private final ChunkRepository chunkRepository;
+    private final KnowledgeBaseRepository kbRepository;
     private final MinioStorage minioStorage;
     private final EmbeddingService embeddingService;
     private final ElasticsearchSearch elasticsearchSearch;
@@ -40,6 +43,7 @@ public class IndexService {
 
     public IndexService(DocumentRepository documentRepository,
                         ChunkRepository chunkRepository,
+                        KnowledgeBaseRepository kbRepository,
                         MinioStorage minioStorage,
                         EmbeddingService embeddingService,
                         ElasticsearchSearch elasticsearchSearch,
@@ -47,6 +51,7 @@ public class IndexService {
                         ObjectMapper objectMapper) {
         this.documentRepository = documentRepository;
         this.chunkRepository = chunkRepository;
+        this.kbRepository = kbRepository;
         this.minioStorage = minioStorage;
         this.embeddingService = embeddingService;
         this.elasticsearchSearch = elasticsearchSearch;
@@ -166,6 +171,15 @@ public class IndexService {
                 d.setChunkCount(successCount[0]);
                 d.setIndexedAt(LocalDateTime.now());
                 documentRepository.save(d);
+
+                // Update KB document count when document is successfully indexed
+                if (finalStatus == Document.DocumentStatus.INDEXED && d.getKbId() != null) {
+                    kbRepository.findById(d.getKbId()).ifPresent(kb -> {
+                        kb.setDocumentCount(kb.getDocumentCount() + 1);
+                        kbRepository.save(kb);
+                        tracer.info("更新知识库文档数量: kbId=%s, newCount=%d", kb.getId(), kb.getDocumentCount());
+                    });
+                }
             });
 
             tracer.stepComplete("5. INDEX_COMPLETE");
