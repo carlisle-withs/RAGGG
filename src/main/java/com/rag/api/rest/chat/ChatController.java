@@ -43,7 +43,11 @@ public class ChatController {
             return ResponseEntity.status(403).build();
         }
 
-        ChatApplicationService.ChatResponse response = chatService.chat(request.message(), kbId);
+        User currentUser = getCurrentUser();
+        String userId = currentUser != null ? currentUser.getId() : null;
+
+        ChatApplicationService.ChatResponse response = chatService.chat(
+                request.message(), kbId, userId, conversationId);
 
         return ResponseEntity.ok(new ChatResponse(
                 conversationId,
@@ -52,7 +56,7 @@ public class ChatController {
                         .map(s -> new Source(s.chunkId(), s.content(), s.score()))
                         .toList(),
                 null,
-                null,
+                response.intent() != null ? response.intent().intent().name() : null,
                 null
         ));
     }
@@ -60,6 +64,7 @@ public class ChatController {
     private boolean hasKbAccess(String kbId) {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
+        if (currentUser == null) return false;
         return kbRepository.findById(kbId)
                 .map(kb -> kb.getOwner() != null && kb.getOwner().getId().equals(currentUser.getId()))
                 .orElse(false);
@@ -72,7 +77,14 @@ public class ChatController {
 
     private User getCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return (User) auth.getPrincipal();
+        if (auth == null || auth.getPrincipal() == null) {
+            return null;
+        }
+        Object principal = auth.getPrincipal();
+        if (principal instanceof User) {
+            return (User) principal;
+        }
+        return null;
     }
 
     public record ChatRequest(String message, String conversationId, String userId, List<String> kbIds, Boolean stream) {}

@@ -14,7 +14,6 @@ public class ChunkStrategyFactory {
             case "fixed" -> new FixedChunkStrategy();
             case "structural" -> new StructuralChunkStrategy();
             case "semantic" -> new SemanticChunkStrategy();
-            case "hybrid" -> new HybridChunkStrategy();
             default -> new FixedChunkStrategy();
         };
 
@@ -72,10 +71,6 @@ public class ChunkStrategyFactory {
             }
             if (params.containsKey("minTokensPerChunk")) {
                 semantic.setMinTokensPerChunk((Integer) params.get("minTokensPerChunk"));
-            }
-        } else if (strategy instanceof HybridChunkStrategy hybrid) {
-            if (params.containsKey("maxTokensPerChunk")) {
-                hybrid.setMaxTokensPerChunk((Integer) params.get("maxTokensPerChunk"));
             }
         }
     }
