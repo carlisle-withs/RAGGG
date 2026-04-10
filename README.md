@@ -19,53 +19,49 @@
 
 ## 系统架构
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              前端 (HTML/JS)                              │
-│                     登录 / 注册 / RAG 对话 / 文档检索                    │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼ HTTP/REST
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Spring Boot 后端                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │  Auth API   │  │  Chat API   │  │ Document API│  │   KB API    │    │
-│  │ (登录/注册)  │  │  (RAG对话)  │  │  (文档管理)  │  │  (知识库)   │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    应用服务层 (Application)                        │    │
-│  │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐   │    │
-│  │  │ ChatApplication │  │ RetrievalApp     │  │ DocumentApp     │   │    │
-│  │  │    Service     │  │ Service         │  │ Service         │   │    │
-│  │  └─────────────────┘  └──────────────────┘  └─────────────────┘   │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    领域模型层 (Domain)                           │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │    │
-│  │  │   Document  │  │   Chunk     │  │ KnowledgeBase│              │    │
-│  │  │   (文档)     │  │   (分块)    │  │  (知识库)    │              │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘              │    │
-│  │                                                                  │    │
-│  │  ┌─────────────────────────────────────────────────────────┐     │    │
-│  │  │              分块策略工厂 (ChunkStrategyFactory)           │     │    │
-│  │  │  Fixed | Structural | Semantic | Intelligent            │     │    │
-│  │  └─────────────────────────────────────────────────────────┘     │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                  基础设施层 (Infrastructure)                      │    │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │    │
-│  │  │   LLM    │  │ Embedding│  │ Milvus   │  │   ES     │         │    │
-│  │  │ Service  │  │ Service  │  │ VectorStore│ │ Search  │         │    │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │    │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐         │    │
-│  │  │  MinIO   │  │  Redis   │  │  Kafka   │  │   MySQL  │         │    │
-│  │  │ Storage  │  │  Cache   │  │   MQ     │  │   JPA    │         │    │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘         │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Frontend["👤 前端 (HTML/JS)"]
+        UI["登录 / 注册 / RAG 对话 / 文档检索"]
+    end
+    
+    subgraph Backend["🚀 Spring Boot 后端"]
+        subgraph API["🎯 API Layer"]
+            AuthAPI["Auth API<br/>(登录/注册)"]
+            ChatAPI["Chat API<br/>(RAG对话)"]
+            DocAPI["Document API<br/>(文档管理)"]
+            KBAPI["KB API<br/>(知识库)"]
+        end
+        
+        subgraph Application["⚙️ Application Layer"]
+            ChatAS["ChatApplicationService"]
+            RetrievalAS["RetrievalApplicationService"]
+            DocumentAS["DocumentApplicationService"]
+        end
+        
+        subgraph Domain["📐 Domain Layer"]
+            DocModel["Document<br/>(文档)"]
+            ChunkModel["Chunk<br/>(分块)"]
+            KBModel["KnowledgeBase<br/>(知识库)"]
+            ChunkFactory["ChunkStrategyFactory<br/>Fixed | Structural | Semantic | Intelligent"]
+        end
+        
+        subgraph Infrastructure["🔧 Infrastructure Layer"]
+            LLM["LLM Service<br/>ChatModel"]
+            Embed["Embedding<br/>Service"]
+            Milvus["Milvus<br/>VectorStore"]
+            ES["Elasticsearch<br/>Search"]
+            MinIO["MinIO<br/>Storage"]
+            Redis["Redis<br/>Cache"]
+            Kafka["Kafka<br/>MQ"]
+            MySQL["MySQL<br/>JPA"]
+        end
+    end
+    
+    Frontend -->|HTTP/REST| Backend
+    API --> Application
+    Application --> Domain
+    Application --> Infrastructure
 ```
 
 ## 核心流程
@@ -74,20 +70,43 @@
 
 文档从上传到可检索需要经过以下阶段，全程异步处理：
 
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  上传文件  │ ──▶ │ Tika解析  │ ──▶ │  分块处理  │ ──▶ │ 向量化索引 │ ──▶ │  完成     │
-└──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
-     │                │                │                │                │
-     ▼                ▼                ▼                ▼                ▼
-  MinIO存储      MinIO存储        MinIO存储       Milvus+ES        MySQL状态更新
-                  (原始文件)      (chunks.json)    (向量+全文)
+```mermaid
+flowchart LR
+    subgraph Upload["📤 上传"]
+        UploadStep["上传文件"]
+        MinioRaw["MinIO<br/>(原始文件)"]
+    end
+    
+    subgraph Parse["📄 解析"]
+        ParseStep["Tika解析"]
+        MinioParsed["MinIO<br/>(parsed.txt)"]
+    end
+    
+    subgraph Chunk["✂️ 分块"]
+        ChunkStep["分块处理"]
+        MinioChunks["MinIO<br/>(chunks.json)"]
+    end
+    
+    subgraph Index["📊 索引"]
+        IndexStep["向量化索引"]
+        MilvusES["Milvus + ES<br/>(向量 + 全文)"]
+        MySQLStatus["MySQL<br/>(状态更新)"]
+    end
+    
+    UploadStep -->|存储| MinioRaw
+    MinioRaw -->|异步| ParseStep
+    ParseStep -->|存储| MinioParsed
+    MinioParsed -->|异步| ChunkStep
+    ChunkStep -->|存储| MinioChunks
+    MinioChunks -->|异步| IndexStep
+    IndexStep --> MilvusES
+    IndexStep --> MySQLStatus
 ```
 
 **Kafka Topics：**
-- `document-raw` - 原始文档事件
-- `document-chunked` - 分块完成事件
-- `document-indexed` - 索引完成事件
+- `document-upload` - 原始文档事件
+- `document-parsed` - 分块完成事件
+- `document-chunked` - 索引完成事件
 
 **各阶段职责：**
 
@@ -100,12 +119,26 @@
 
 ### 2. RAG 对话流程
 
-```
-用户Query ──▶ 上下文补充 ──▶ 意图识别/拆分 ──▶ 查询改写 ──▶ 多路召回 ──▶ RRF融合 ──▶ 重排序 ──▶ 构建Prompt ──▶ LLM生成
-                │                │                │              │                            │                  │
-                ▼                ▼                ▼              ▼                            ▼                  ▼
-           历史摘要          子问题            LLM生成        Milvus向量检索              RRF算法              CrossEncoder      最终Prompt
-           +记忆            拆分              多个查询        ES全文检索                  融合                重排              +指令
+```mermaid
+flowchart TB
+    Query["用户Query"] --> Context["上下文补充"]
+    
+    Context --> Intent["意图识别/拆分"]
+    Intent --> Rewrite["查询改写"]
+    Rewrite --> MultiQuery["多路召回"]
+    
+    MultiQuery -->|Milvus| VecSearch["向量检索"]
+    MultiQuery -->|ES| TextSearch["全文检索"]
+    
+    VecSearch --> RRF["RRF融合"]
+    TextSearch --> RRF
+    
+    RRF --> Rerank["CrossEncoder重排序"]
+    Rerank --> Prompt["构建Prompt"]
+    Prompt --> LLM["LLM生成"]
+    LLM --> Response["响应"]
+    
+    Context -.->|历史摘要+记忆| Prompt
 ```
 
 **对话处理关键步骤：**
@@ -156,16 +189,44 @@
 
 **智能分块决策树：**
 
-```
-MIME Type 检测
-    │
-    ├── PDF/Word ──▶ StructuralChunkStrategy (保留文档结构)
-    ├── HTML/Markdown ──▶ StructuralChunkStrategy (基于标题层级)
-    ├── TXT/CSV ──▶ FixedChunkStrategy (固定大小)
-    └── 其他 ──▶ SemanticChunkStrategy (语义分块)
+```mermaid
+flowchart TB
+    Start["MIME Type 检测"] --> Decision
+    
+    Decision{"文档类型?"}
+    
+    Decision -->|PDF/Word| Structural["StructuralChunkStrategy<br/>(保留文档结构)"]
+    Decision -->|HTML/Markdown| HTML["StructuralChunkStrategy<br/>(基于标题层级)"]
+    Decision -->|TXT/CSV| Fixed["FixedChunkStrategy<br/>(固定大小)"]
+    Decision -->|其他| Semantic["SemanticChunkStrategy<br/>(语义分块)"]
 ```
 
 ## 五存储系统
+
+```mermaid
+flowchart LR
+    subgraph Storage["📦 存储系统"]
+        MySQL["🗄️ MySQL<br/>关系数据持久化"] 
+        MinIO["💾 MinIO<br/>对象存储"]
+        Redis["⚡ Redis<br/>缓存/会话"]
+        Milvus["📊 Milvus<br/>向量检索"]
+        ES["🔍 Elasticsearch<br/>全文检索"]
+    end
+    
+    subgraph Data["📋 数据类型"]
+        UserRole["User, Role, Permission<br/>Document, Chunk<br/>KnowledgeBase<br/>ConversationSummary"]
+        Files["原始文件<br/>解析后文本<br/>chunks.json"]
+        Session["对话消息<br/>Token<br/>摘要缓存"]
+        Vec["chunk embeddings<br/>doc_id, chunk_id<br/>content, embedding<br/>kb_id"]
+        FullText["chunk_id, content<br/>document_id, kb_id"]
+    end
+    
+    MySQL --> UserRole
+    MinIO --> Files
+    Redis --> Session
+    Milvus --> Vec
+    ES --> FullText
+```
 
 | 存储 | 用途 | 数据类型 |
 |------|------|----------|
@@ -241,33 +302,41 @@ MIME Type 检测
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/v1/kb` | POST | 创建知识库 |
-| `/api/v1/kb` | GET | 获取知识库列表 |
-| `/api/v1/kb/{id}` | GET | 获取知识库详情 |
-| `/api/v1/kb/{id}` | DELETE | 删除知识库 |
+| `/api/v1/kbs` | POST | 创建知识库 |
+| `/api/v1/kbs` | GET | 获取知识库列表 |
+| `/api/v1/kbs/{id}` | GET | 获取知识库详情 |
+| `/api/v1/kbs/{id}` | PUT | 更新知识库 |
+| `/api/v1/kbs/{id}` | DELETE | 删除知识库 |
 
 ### 文档接口
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/v1/document/upload` | POST | 上传文档 |
-| `/api/v1/document` | GET | 获取文档列表 |
-| `/api/v1/document/{id}` | GET | 获取文档详情 |
-| `/api/v1/document/{id}` | DELETE | 删除文档 |
-| `/api/v1/document/{id}/status` | GET | 获取文档处理状态 |
+| `/api/v1/documents/upload` | POST | 上传文档 |
+| `/api/v1/documents` | GET | 获取文档列表 |
+| `/api/v1/documents/{id}` | GET | 获取文档详情 |
+| `/api/v1/documents/{id}` | DELETE | 删除文档 |
+| `/api/v1/documents/{id}/status` | GET | 获取文档处理状态 |
 
 ### 对话接口
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | `/api/v1/chat` | POST | RAG 对话问答 |
-| `/api/v1/chat/history` | GET | 获取对话历史 |
+| `/api/v1/chat/history/{conversationId}` | GET | 获取对话历史 |
+| `/api/v1/chat/history/{conversationId}` | DELETE | 删除会话 |
 
 ### 检索接口
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | `/api/v1/retrieve` | POST | 文档检索 |
+
+### 评估接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/evaluation/ragas` | POST | RAGAS评估 |
 
 ## 配置说明
 
@@ -315,9 +384,9 @@ kafka:
   consumer:
     group-id: rag-system
   topics:
-    document-raw: document-raw
+    document-upload: document-upload
+    document-parsed: document-parsed
     document-chunked: document-chunked
-    document-indexed: document-indexed
 
 # ============ 关系数据库 (MySQL) =============
 mysql:
@@ -378,6 +447,13 @@ mvn spring-boot:run -DskipTests
 mvn spring-boot:run -DskipTests -Dspring-boot.run.arguments="--spring.config.additional-location=file:./config.yaml"
 ```
 
+### Docker 基础设施
+
+```bash
+# 启动所有中间件服务
+docker-compose up -d
+```
+
 ### 默认账号
 
 - 用户名：`admin`
@@ -397,15 +473,22 @@ src/main/java/com/rag/
 │   ├── chat/                    # 聊天接口
 │   ├── document/                # 文档管理接口
 │   ├── kb/                      # 知识库管理接口
-│   └── retrieval/               # 检索接口
+│   ├── retrieval/               # 检索接口
+│   └── evaluation/              # 评估接口
 │
 ├── application/                 # 应用服务层 (用例编排)
 │   ├── chat/                    # 聊天服务
-│   │   └── ChatApplicationService.java
+│   │   ├── ChatApplicationService.java
+│   │   ├── IntentClassifier.java
+│   │   ├── MemoryService.java
+│   │   └── QueryRewriter.java
 │   ├── document/                # 文档服务
 │   │   └── DocumentApplicationService.java
-│   └── retrieval/               # 检索服务
-│       └── RetrievalApplicationService.java
+│   ├── retrieval/               # 检索服务
+│   │   ├── RetrievalApplicationService.java
+│   │   └── HybridRetrievalService.java
+│   └── evaluation/              # 评估服务
+│       └── RAGASEvaluator.java
 │
 ├── domain/                      # 领域模型层
 │   ├── model/                   # 实体类
@@ -418,6 +501,7 @@ src/main/java/com/rag/
 │   │   └── ConversationSummary.java
 │   ├── repository/              # 仓储接口 (JPA)
 │   ├── event/                   # 领域事件
+│   │   └── DocumentEvent.java
 │   └── chunking/                # 分块策略
 │       ├── ChunkStrategy.java   # 策略接口
 │       ├── ChunkStrategyFactory.java
@@ -429,7 +513,8 @@ src/main/java/com/rag/
 ├── infrastructure/              # 基础设施层
 │   ├── llm/                    # LLM 服务
 │   │   ├── ChatModelService.java
-│   │   └── EmbeddingService.java
+│   │   ├── EmbeddingService.java
+│   │   └── CrossEncoderReranker.java
 │   ├── vector/                 # 向量存储 (Milvus)
 │   │   └── MilvusVectorStore.java
 │   ├── search/                 # 全文搜索 (Elasticsearch)
@@ -438,7 +523,9 @@ src/main/java/com/rag/
 │   ├── storage/                # 对象存储 (MinIO)
 │   │   └── MinioStorage.java
 │   ├── mq/                     # 消息队列 (Kafka)
-│   │   ├── KafkaConsumer.java
+│   │   ├── KafkaConfig.java
+│   │   ├── KafkaTopics.java
+│   │   ├── DocumentEventProducer.java
 │   │   ├── ParseService.java   # 文档解析
 │   │   ├── ChunkService.java   # 分块处理
 │   │   └── IndexService.java   # 向量索引
@@ -462,35 +549,52 @@ src/main/java/com/rag/
 
 **解决方案**：将同步编排流程重构为基于 Kafka 的异步解耦流水线，实现全链路异步化。
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                           异步解耦流水线架构                                       │
-│                                                                                  │
-│  ┌────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐  │
-│  │  Document  │ ──▶ │    Kafka   │ ──▶ │   Parse     │ ──▶ │    Kafka    │  │
-│  │  Upload   │      │   Topic    │      │   Service   │      │   Topic     │  │
-│  └────────────┘      │ (削峰填谷)  │      └─────────────┘      │ (异步触发)   │  │
-│       │             └─────────────┘            │                └─────────────┘  │
-│       ▼                                           ▼                       │      │
-│   MinIO存储                               MinIO(parsed.txt)              ▼      │
-│                                                              ┌─────────────┐  │
-│                                                              │   Chunk     │  │
-│                                                              │  Service    │  │
-│                                                              └─────────────┘  │
-│                                                                    │          │
-│                                                                    ▼          │
-│                                                              ┌─────────────┐  │
-│                                                              │   Index     │  │
-│                                                              │  Service    │  │
-│                                                              └─────────────┘  │
-│                                                                    │          │
-│       ┌───────────────────────────────────────────────────────────────┘          │
-│       ▼                                                                       │
-│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐                       │
-│  │   MySQL     │      │   Milvus    │      │      ES     │                       │
-│  │  (状态更新)  │      │  (向量索引)  │      │  (全文索引)  │                       │
-│  └─────────────┘      └─────────────┘      └─────────────┘                       │
-└──────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Upload["📤 文档上传"]
+        Doc["Document<br/>Upload"]
+        Minio1["MinIO<br/>(raw file)"]
+    end
+    
+    subgraph ParseStage["📄 解析阶段"]
+        Kafka1["Kafka<br/>document-upload"]
+        Parse["Parse<br/>Service"]
+        Tika["Apache Tika"]
+        Minio2["MinIO<br/>(parsed.txt)"]
+    end
+    
+    subgraph ChunkStage["✂️ 分块阶段"]
+        Kafka2["Kafka<br/>document-parsed"]
+        Chunk["Chunk<br/>Service"]
+        Factory["ChunkStrategy<br/>Factory"]
+    end
+    
+    subgraph IndexStage["📊 索引阶段"]
+        Kafka3["Kafka<br/>document-chunked"]
+        Index["Index<br/>Service"]
+        Embed["Embedding<br/>Service"]
+    end
+    
+    subgraph Storage["💾 存储"]
+        MySQL["MySQL<br/>(status)"]
+        Milvus["Milvus<br/>(vectors)"]
+        ES["Elasticsearch<br/>(full-text)"]
+    end
+    
+    Doc --> Minio1
+    Doc -->|event| Kafka1
+    Kafka1 --> Parse
+    Parse --> Tika
+    Tika --> Minio2
+    Minio2 -->|event| Kafka2
+    Kafka2 --> Chunk
+    Chunk --> Factory
+    Factory -->|event| Kafka3
+    Kafka3 --> Index
+    Index --> Embed
+    Embed --> Milvus
+    Embed --> ES
+    Index --> MySQL
 ```
 
 **技术价值**：
@@ -505,47 +609,21 @@ src/main/java/com/rag/
 
 **解决方案**：构建 "ES（BM25关键词）+ Milvus（稠密向量）" 混合检索架构。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        双路召回架构                               │
-│                                                                 │
-│                     用户Query                                    │
-│                        │                                         │
-│                        ▼                                         │
-│              ┌─────────────────┐                                 │
-│              │   Query Rewrite │                                 │
-│              │  (查询改写扩展)  │                                 │
-│              └─────────────────┘                                 │
-│                   │           │                                 │
-│         ┌─────────┘           └─────────┐                        │
-│         ▼                             ▼                          │
-│  ┌─────────────┐             ┌─────────────┐                    │
-│  │      ES     │             │   Milvus    │                    │
-│  │  (BM25)    │             │   (Vector)  │                    │
-│  │             │             │             │                    │
-│  │ • 关键词匹配 │             │ • 语义相似度 │                    │
-│  │ • TF-IDF   │             │ • ANN检索   │                    │
-│  │ • 分词检索  │             │ • HNSW索引  │                    │
-│  └─────────────┘             └─────────────┘                    │
-│         │                             │                          │
-│         └──────────┬──────────────────┘                         │
-│                    ▼                                            │
-│           ┌─────────────────┐                                    │
-│           │  RRF 融合算法   │                                    │
-│           │                 │                                    │
-│           │ score = Σ 1/(k+rank_i) │                           │
-│           └─────────────────┘                                    │
-│                    │                                            │
-│                    ▼                                            │
-│           ┌─────────────────┐                                    │
-│           │  CrossEncoder   │                                    │
-│           │    重排序        │                                    │
-│           │   (精排 TopK)    │                                    │
-│           └─────────────────┘                                    │
-│                    │                                            │
-│                    ▼                                            │
-│              TopK Results                                       │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Query["用户Query"] --> Rewrite["Query Rewrite<br/>(查询改写扩展)"]
+    
+    Rewrite --> Milvus["Milvus<br/>(向量检索)"]
+    Rewrite --> ES["Elasticsearch<br/>(BM25检索)"]
+    
+    Milvus -->|ANN检索<br/>HNSW索引| VecResults["TopK×2<br/>语义结果"]
+    ES -->|关键词匹配<br/>TF-IDF| TextResults["TopK×2<br/>文本结果"]
+    
+    VecResults --> RRF["RRF 融合算法<br/>score = Σ 1/(k+rank_i)"]
+    TextResults --> RRF
+    
+    RRF --> Cross["CrossEncoder<br/>重排序"]
+    Cross --> TopK["TopK Results<br/>(精排结果)"]
 ```
 
 **RRF 融合公式**：
@@ -570,29 +648,39 @@ $$Score_{RRF} = \sum_{i=1}^{N} \frac{1}{k + rank_i(d)}$$
 
 **解决方案**：滑动窗口 + 自动摘要 + TTL 过期策略
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     智能会话记忆架构                              │
-│                                                                 │
-│  对话历史                                                        │
-│  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐            │
-│  │ U1 │ A1 │ U2 │ A2 │ U3 │ A3 │ U4 │ A4 │ U5 │ A5 │ ...      │
-│  └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘            │
-│       │                    │                    │                │
-│       ▼                    ▼                    ▼                │
-│  Window=10           Threshold=8          LLM Summary           │
-│  最近10轮              触发摘要              生成摘要              │
-│       │                    │                    │                │
-│       ▼                    ▼                    ▼                │
-│  ┌─────────────────────────────────────────────────────┐       │
-│  │              MemoryService                            │       │
-│  │  ┌─────────────┐    ┌─────────────┐                 │       │
-│  │  │ Redis List  │    │ MySQL       │                 │       │
-│  │  │ (热数据)    │    │ (持久化摘要) │                 │       │
-│  │  │ TTL=7天    │    │             │                 │       │
-│  │  └─────────────┘    └─────────────┘                 │       │
-│  └─────────────────────────────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Conversation["💬 对话历史"]
+        direction LR
+        U1["U1"] --> A1["A1"]
+        A1 --> U2["U2"]
+        U2 --> A2["A2"]
+        A2 --> U3["U3"]
+        U3 --> A3["A3"]
+        A3 --> Dots1["..."]
+        Dots1 --> U8["U8"]
+        U8 --> A8["A8"]
+    end
+    
+    subgraph Memory["🧠 MemoryService"]
+        subgraph Hot["⚡ Redis (热数据)"]
+            Window["最近 N 轮<br/>(window=10)"]
+        end
+        
+        subgraph Cold["🗄️ MySQL (持久化)"]
+            Summary["对话摘要<br/>(threshold=8)"]
+        end
+    end
+    
+    U8 -->|达到阈值| Trigger["触发摘要"]
+    Trigger --> LLM["LLM 生成摘要"]
+    LLM --> Summary
+    
+    Conversation -->|实时写入| Window
+    Window -->|滑动| Conversation
+    
+    Summary -->|长期保留| MySQL
+    Window -.->|7天TTL| Redis
 ```
 
 **工作流程**：
@@ -621,60 +709,35 @@ $$Score_{RRF} = \sum_{i=1}^{N} \frac{1}{k + rank_i(d)}$$
 
 **解决方案**：基于 LLM 实现意图识别 + 知识库动态路由 + 查询改写
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    统一语义理解与动态路由                          │
-│                                                                 │
-│                     用户原始问题                                  │
-│                        │                                         │
-│                        ▼                                         │
-│              ┌─────────────────┐                                 │
-│              │   意图识别器      │                                 │
-│              │ IntentClassifier │                                 │
-│              └─────────────────┘                                 │
-│                   │           │                                 │
-│          ┌────────┘           └────────┐                        │
-│          ▼                             ▼                         │
-│   ┌────────────┐              ┌────────────┐                    │
-│   │   闲聊类    │              │   检索类   │                    │
-│   │  (闲聊回复) │              │  (进入RAG) │                    │
-│   └────────────┘              └────────────┘                    │
-│                                        │                        │
-│                                        ▼                        │
-│                              ┌─────────────────┐                │
-│                              │   问题拆解器     │                │
-│                              │ QuestionDecomposer│               │
-│                              └─────────────────┘                │
-│                                        │                        │
-│                           ┌────────────┴────────────┐          │
-│                           ▼                         ▼           │
-│                    ┌─────────────┐            ┌─────────────┐    │
-│                    │   子问题1   │            │   子问题2   │    │
-│                    │ (独立检索)  │            │ (独立检索)  │    │
-│                    └─────────────┘            └─────────────┘    │
-│                           │                       │             │
-│                           └───────────┬───────────┘             │
-│                                       ▼                          │
-│                             ┌─────────────────┐                   │
-│                             │   查询改写器     │                   │
-│                             │  QueryRewriter  │                   │
-│                             │                 │                   │
-│                             │ • 同义词扩展    │                   │
-│                             │ • 语义扩展      │                   │
-│                             │ • 语言优化      │                   │
-│                             └─────────────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Original["用户原始问题"] --> Intent["意图识别器<br/>IntentClassifier"]
+    
+    Intent --> ChitChat["闲聊类<br/>(闲聊回复)"]
+    Intent --> Retrieval["检索类<br/>(进入RAG)"]
+    
+    Retrieval --> Decompose["问题拆解器<br/>QuestionDecomposer"]
+    
+    Decompose --> SubQ1["子问题1"]
+    Decompose --> SubQ2["子问题2"]
+    
+    SubQ1 --> Rewrite["查询改写器<br/>QueryRewriter"]
+    SubQ2 --> Rewrite
+    
+    Rewrite --> Expand["同义词扩展<br/>语义扩展<br/>语言优化"]
+    
+    Expand --> Retrieve["独立检索"]
 ```
 
 **意图分类**：
 
 | 意图类型 | 处理策略 | 说明 |
 |----------|----------|------|
-| **factual** | RAG 检索 | 需要知识库回答的事实性问题 |
-| **opinion** | RAG 检索 + 观点整合 | 需要综合多个来源的观点 |
-| **instruction** | 直接执行 | 系统操作指令（如"清空对话"）|
-| **chitchat** | 闲聊回复 | 不需要检索的闲聊 |
-| **clarification** | 要求澄清 | 置信度不足，需要用户补充信息 |
+| **KNOWLEDGE_QA** | RAG 检索 | 需要知识库回答的事实性问题 |
+| **CHIT_CHAT** | 闲聊回复 | 不需要检索的闲聊 |
+| **PRECISE_SEARCH** | RAG 检索 | 精确信息查找请求 |
+| **SUMMARY** | 摘要请求 | 使用记忆上下文 |
+| **UNKNOWN** | 根据置信度决定 | 无法分类 |
 
 **置信度机制**：
 
@@ -696,39 +759,25 @@ if confidence < threshold:
 
 **解决方案**：基于 Redis 实现分布式限流 + 公平排队 + SSE 实时推送
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     分布式限流架构                                │
-│                                                                 │
-│  用户请求                                                          │
-│     │                                                             │
-│     ▼                                                             │
-│  ┌─────────────┐                                                  │
-│  │   限流器    │  ──▶ Redis SEMAPHORE                            │
-│  │ (TokenBucket)│     (信号量控制并发数)                          │
-│  └─────────────┘                                                  │
-│     │                         │                                  │
-│     ▼                         ▼                                  │
-│  ┌─────────────┐      ┌─────────────┐                           │
-│  │   可用      │      │   满载      │                           │
-│  │  ──▶ 执行   │      │  ──▶ 排队   │                           │
-│  └─────────────┘      └─────────────┘                           │
-│                               │                                  │
-│                               ▼                                  │
-│                      ┌─────────────────┐                         │
-│                      │   Redis ZSET    │                         │
-│                      │  (时间戳排序)    │                         │
-│                      │                 │                         │
-│                      │  score = 时间戳  │                         │
-│                      │  公平 FIFO 排队  │                         │
-│                      └─────────────────┘                         │
-│                               │                                  │
-│                               ▼                                  │
-│                      ┌─────────────────┐                         │
-│                      │  SSE 实时推送    │                         │
-│                      │ 排队状态给前端   │                         │
-│                      └─────────────────┘                         │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Request["用户请求"] --> Limiter["限流器<br/>(TokenBucket)"]
+    
+    Limiter -->|Redis SEMAPHORE| Available["可用<br/>➡️ 执行"]
+    Limiter -->|满载| Queue["排队中"]
+    
+    Queue --> RedisZSET["Redis ZSET<br/>(时间戳排序)"]
+    RedisZSET -->|score = 时间戳| FIFO["公平FIFO"]
+    
+    FIFO --> SSE["SSE 实时推送<br/>排队状态给前端"]
+    
+    subgraph Lua["Lua 脚本 (原子性)"]
+        Check["GET key"]
+        Check -->|count < limit| Incr["INCR + EXPIRE<br/>允许执行"]
+        Check -->|count >= limit| Reject["拒绝"]
+    end
+    
+    Available -.->|并发控制| Lua
 ```
 
 **限流策略**：
@@ -782,30 +831,28 @@ if confidence < threshold:
 
 [RAGAS](https://github.com/explodinggradients/ragas) (Retrieval Augmented Generation Assessment) 是一个专为 RAG 系统设计的自动化评测框架，提供多维度指标评估检索和生成质量。
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           RAGAS 评测体系                                  │
-│                                                                         │
-│   用户Query ──▶ RAG Pipeline ──▶ 回答                                    │
-│       │                    │                                             │
-│       │                    ▼                                             │
-│       │            ┌───────────────┐                                     │
-│       │            │   上下文片段   │                                     │
-│       │            └───────────────┘                                     │
-│       │                    │                                             │
-│       └──────────┬─────────┬─┘                                          │
-│                  ▼         ▼                                              │
-│          ┌───────────┐ ┌───────────┐                                   │
-│          │  Ground  │ │  Ground   │                                   │
-│          │  Truth   │ │  Truth    │                                    │
-│          └───────────┘ └───────────┘                                    │
-│                  │         │                                            │
-│                  └────┬────┘                                             │
-│                       ▼                                                  │
-│              ┌─────────────────┐                                        │
-│              │   RAGAS Metrics │                                        │
-│              └─────────────────┘                                        │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Question["用户Query"] --> Pipeline["RAG Pipeline"]
+    Pipeline --> Answer["Generated Answer"]
+    Pipeline --> Context["Retrieved Context"]
+    
+    Question --> Metrics["RAGAS Metrics"]
+    Answer --> Metrics
+    Context --> Metrics
+    
+    Metrics --> Faith["Faithfulness<br/>(忠实度)"]
+    Metrics --> Relev["Answer Relevancy<br/>(回答相关性)"]
+    Metrics --> Prec["Context Precision<br/>(上下文精确度)"]
+    Metrics --> Recall["Context Recall<br/>(上下文召回率)"]
+    
+    subgraph GroundTruth["Ground Truth (可选)"]
+        GT_Answer["Ground Truth Answer"]
+        GT_Context["Ground Truth Context"]
+    end
+    
+    Metrics --> GT_Answer
+    Metrics --> GT_Context
 ```
 
 ### 评测指标体系
@@ -853,37 +900,28 @@ $$ answer\_relevancy = \frac{1}{n} \sum_{i=1}^{n} \frac{sim(q, q_i')}{n} $$
 
 ### 评测流程
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         RAGAS 评测 Pipeline                              │
-│                                                                         │
-│  1. 准备评测集                                                           │
-│     ┌─────────────────────────────────────────┐                         │
-│     │ {question, ground_truth, contexts[]}   │                         │
-│     │ 测试问题 / 标准答案 / 检索上下文         │                         │
-│     └─────────────────────────────────────────┘                         │
-│                      │                                                   │
-│                      ▼                                                   │
-│  2. 执行 RAG Pipeline                                                   │
-│     ┌─────────────────────────────────────────┐                         │
-│     │ query → retrieval → generation → answer │                         │
-│     │              ↑                           │                         │
-│     │         contexts                         │                         │
-│     └─────────────────────────────────────────┘                         │
-│                      │                                                   │
-│                      ▼                                                   │
-│  3. 计算评测指标                                                         │
-│     ┌─────────────────────────────────────────┐                         │
-│     │ faithfulness / answer_relevancy / ...   │                         │
-│     │ 使用 LLM 评估生成答案质量                 │                         │
-│     └─────────────────────────────────────────┘                         │
-│                      │                                                   │
-│                      ▼                                                   │
-│  4. 生成评测报告                                                         │
-│     ┌─────────────────────────────────────────┐                         │
-│     │ {ragas_score, metrics[], latency[]}    │                         │
-│     └─────────────────────────────────────────┘                         │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Step1["1. 准备评测集"]
+        EvalData["{question, ground_truth, contexts[]}"]
+    end
+    
+    Step1 --> Step2["2. 执行 RAG Pipeline"]
+    Step2 --> Step3["3. 计算评测指标"]
+    Step3 --> Step4["4. 生成评测报告"]
+    
+    Step2 --> Query["query"]
+    Step2 --> Retrieval["retrieval"]
+    Step2 --> Generation["generation"]
+    Step2 --> Answer["answer"]
+    
+    Query -.-> Step3
+    Retrieval -.-> Step3
+    Answer -.-> Step3
+    
+    Step3 --> Metrics["faithfulness<br/>answer_relevancy<br/>context_precision<br/>context_recall"]
+    
+    Step4 --> Report["{ragas_score, metrics[], latency[]}"]
 ```
 
 ### RAGAS 配置示例
@@ -917,7 +955,7 @@ result = evaluate(
         faithfulness,           # 忠实度
         answer_relevancy,      # 回答相关性
         context_precision,     # 上下文精确度
-        context_recall,       # 上下文召回率
+        context_recall,        # 上下文召回率
     ]
 )
 
