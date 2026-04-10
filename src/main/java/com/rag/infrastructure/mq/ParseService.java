@@ -2,8 +2,8 @@ package com.rag.infrastructure.mq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.domain.event.DocumentEvent;
-import com.rag.domain.model.Document;
-import com.rag.domain.repository.DocumentRepository;
+import com.rag.domain.model.KnowledgeDocument;
+import com.rag.domain.repository.KnowledgeDocumentRepository;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
 import org.apache.tika.Tika;
@@ -29,12 +29,12 @@ public class ParseService {
     private final DocumentEventProducer eventProducer;
     private final ObjectMapper objectMapper;
     private final Tika tika;
-    private final DocumentRepository documentRepository;
+    private final KnowledgeDocumentRepository documentRepository;
 
     public ParseService(MinioStorage minioStorage,
                        DocumentEventProducer eventProducer,
                        ObjectMapper objectMapper,
-                       DocumentRepository documentRepository) {
+                       KnowledgeDocumentRepository documentRepository) {
         this.minioStorage = minioStorage;
         this.eventProducer = eventProducer;
         this.objectMapper = objectMapper;
@@ -52,26 +52,23 @@ public class ParseService {
         try {
             DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
             String traceId = event.getTraceId();
-            String documentId = event.getDocumentId();
+            Long documentId = Long.parseLong(event.getDocumentId());
 
-            TraceLogger tracer = TraceLogger.get(ParseService.class, traceId, documentId);
+            TraceLogger tracer = TraceLogger.get(ParseService.class, traceId, documentId.toString());
 
-            // 检查文档是否已删除
             var docOpt = documentRepository.findById(documentId);
-            if (docOpt.isEmpty() || docOpt.get().isDeleted()) {
+            if (docOpt.isEmpty() || docOpt.get().getDeleted()) {
                 tracer.info("文档已删除，跳过处理: documentId=%s", documentId);
                 return;
             }
 
             tracer.step("3. PARSE_START");
 
-            // Update status to PARSING
-            docOpt.get().setStatus(Document.DocumentStatus.PARSING);
+            docOpt.get().setStatus(KnowledgeDocument.DocumentStatus.PARSING);
             documentRepository.save(docOpt.get());
 
             tracer.info("收到 Kafka 消息: topic=document-upload, minioPath=%s", event.getMinioPath());
 
-            // Download from MinIO
             tracer.info("下载原始文件: minioPath=%s", event.getMinioPath());
             String parsedPath = event.getKbId() + "/" + event.getDocumentId() + "/parsed.txt";
             int textLength;
@@ -81,7 +78,6 @@ public class ParseService {
                 tracer.step("3.1 EXTRACT_TEXT");
                 tracer.info("使用 Tika 解析文档...");
 
-                // 检测 MIME 类型
                 mimeType = detectMimeType(fileStream);
                 tracer.info("Tika 检测到 MIME 类型: %s", mimeType);
             }
@@ -99,18 +95,15 @@ public class ParseService {
             tracer.stepComplete("3.1 EXTRACT_TEXT", "textLength=" + textLength);
             Files.deleteIfExists(tempParsedFile);
 
-            // Update status to PARSED
             documentRepository.findById(documentId).ifPresent(doc -> {
-                doc.setStatus(Document.DocumentStatus.PARSED);
+                doc.setStatus(KnowledgeDocument.DocumentStatus.PARSED);
                 documentRepository.save(doc);
             });
 
-            // Update event and send to next topic
             tracer.step("3.2 SEND_KAFKA_MESSAGE");
             event.setEventType(DocumentEvent.EventType.PARSED);
             event.setParsedMinioPath(parsedPath);
 
-            // 添加 MIME 类型到元数据
             Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
             metadata.put("mimeType", mimeType);
             event.setMetadata(metadata);
@@ -123,11 +116,10 @@ public class ParseService {
 
         } catch (Exception e) {
             log.error("Failed to parse document: {}", e.getMessage(), e);
-            // Update status to FAILED
             try {
                 DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
-                documentRepository.findById(event.getDocumentId()).ifPresent(doc -> {
-                    doc.setStatus(Document.DocumentStatus.FAILED);
+                documentRepository.findById(Long.parseLong(event.getDocumentId())).ifPresent(doc -> {
+                    doc.setStatus(KnowledgeDocument.DocumentStatus.FAILED);
                     documentRepository.save(doc);
                 });
             } catch (Exception ex) {
@@ -136,12 +128,8 @@ public class ParseService {
         }
     }
 
-    /**
-     * 使用 Tika 检测文件的 MIME 类型
-     */
     private String detectMimeType(InputStream stream) {
         try {
-            // 使用 Tika 的 detect 方法检测 MIME 类型
             org.apache.tika.metadata.Metadata metadata = new org.apache.tika.metadata.Metadata();
             return tika.detect(stream, metadata);
         } catch (Exception e) {

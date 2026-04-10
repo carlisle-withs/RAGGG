@@ -6,10 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.domain.event.DocumentEvent;
 import com.rag.domain.model.Chunk;
 import com.rag.domain.model.ChunkDTO;
-import com.rag.domain.model.Document;
+import com.rag.domain.model.KnowledgeChunk;
+import com.rag.domain.model.KnowledgeDocument;
 import com.rag.domain.model.KnowledgeBase;
-import com.rag.domain.repository.DocumentRepository;
-import com.rag.domain.repository.ChunkRepository;
+import com.rag.domain.repository.KnowledgeDocumentRepository;
+import com.rag.domain.repository.KnowledgeChunkRepository;
 import com.rag.domain.repository.KnowledgeBaseRepository;
 import com.rag.infrastructure.llm.EmbeddingService;
 import com.rag.infrastructure.search.ElasticsearchSearch;
@@ -32,8 +33,8 @@ public class IndexService {
 
     private static final Logger log = LoggerFactory.getLogger(IndexService.class);
 
-    private final DocumentRepository documentRepository;
-    private final ChunkRepository chunkRepository;
+    private final KnowledgeDocumentRepository documentRepository;
+    private final KnowledgeChunkRepository chunkRepository;
     private final KnowledgeBaseRepository kbRepository;
     private final MinioStorage minioStorage;
     private final EmbeddingService embeddingService;
@@ -41,8 +42,8 @@ public class IndexService {
     private final MilvusVectorStore milvusVectorStore;
     private final ObjectMapper objectMapper;
 
-    public IndexService(DocumentRepository documentRepository,
-                        ChunkRepository chunkRepository,
+    public IndexService(KnowledgeDocumentRepository documentRepository,
+                        KnowledgeChunkRepository chunkRepository,
                         KnowledgeBaseRepository kbRepository,
                         MinioStorage minioStorage,
                         EmbeddingService embeddingService,
@@ -66,30 +67,27 @@ public class IndexService {
 
     @Transactional
     public void doProcess(String message) {
-        String documentId = null;
+        Long documentId = null;
         try {
             DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
-            documentId = event.getDocumentId();
+            documentId = Long.parseLong(event.getDocumentId());
             String traceId = event.getTraceId();
 
-            TraceLogger tracer = TraceLogger.get(IndexService.class, traceId, documentId);
+            TraceLogger tracer = TraceLogger.get(IndexService.class, traceId, event.getDocumentId());
 
-            // 检查文档是否已删除
             var docOpt = documentRepository.findById(documentId);
-            if (docOpt.isEmpty() || docOpt.get().isDeleted()) {
+            if (docOpt.isEmpty() || docOpt.get().getDeleted()) {
                 tracer.info("文档已删除，跳过处理: documentId=%s", documentId);
                 return;
             }
 
             tracer.step("5. INDEX_START");
 
-            // Update status to INDEXING
-            docOpt.get().setStatus(Document.DocumentStatus.INDEXING);
+            docOpt.get().setStatus(KnowledgeDocument.DocumentStatus.INDEXING);
             documentRepository.save(docOpt.get());
 
             tracer.info("收到 Kafka 消息: topic=document-chunked");
 
-            // Read chunks from MinIO (stored as ChunkDTOs)
             Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
             Object chunksMinioPathValue = metadata.get("chunksMinioPath");
             if (!(chunksMinioPathValue instanceof String chunksMinioPath) || chunksMinioPath.isBlank()) {
@@ -97,34 +95,20 @@ public class IndexService {
             }
             tracer.info("从 MinIO 读取 chunks: path=%s", chunksMinioPath);
 
-            // Update existing document
-            tracer.step("5.1 SAVE_DOCUMENT");
             final int[] successCount = {0};
             final int[] failCount = {0};
             final int[] totalCount = {0};
-            final String docId = documentId;
-            final String docFileName = event.getFileName();
-            final String docKbId = event.getKbId();
+            final Long docId = documentId;
+            final Long docKbId = Long.parseLong(event.getKbId());
 
             documentRepository.findById(docId).ifPresentOrElse(doc -> {
-                doc.setStatus(Document.DocumentStatus.INDEXING);
-                doc.setFileName(docFileName);
-                doc.setKbId(docKbId);
+                doc.setStatus(KnowledgeDocument.DocumentStatus.INDEXING);
                 documentRepository.save(doc);
                 tracer.info("文档状态更新为 INDEXING: documentId=%s", docId);
             }, () -> {
-                // 如果文档不存在，创建一个新的
-                Document doc = new Document();
-                doc.setId(docId);
-                doc.setFileName(docFileName);
-                doc.setKbId(docKbId);
-                doc.setStatus(Document.DocumentStatus.INDEXING);
-                documentRepository.save(doc);
-                tracer.info("新建文档: documentId=%s", docId);
             });
 
-            // Index chunks
-            tracer.step("5.2 INDEX_CHUNKS");
+            tracer.step("5.1 SAVE_DOCUMENT");
             try (InputStream chunksStream = minioStorage.getObjectStream(chunksMinioPath);
                  JsonParser parser = objectMapper.getFactory().createParser(chunksStream)) {
                 if (parser.nextToken() != JsonToken.START_ARRAY) {
@@ -140,8 +124,15 @@ public class IndexService {
                         float[] embedding = embeddingService.embed(chunk.getContent());
                         tracer.debug("向量生成完成: dimension=%d", embedding.length);
 
+                        KnowledgeChunk knowledgeChunk = new KnowledgeChunk();
+                        knowledgeChunk.setKbId(docKbId);
+                        knowledgeChunk.setDocId(docId);
+                        knowledgeChunk.setChunkIndex(chunk.getChunkIndex());
+                        knowledgeChunk.setContent(chunk.getContent());
+                        knowledgeChunk.setTokenCount(chunk.getTokenCount());
+
                         tracer.debug("保存 Chunk 到 MySQL...");
-                        chunkRepository.save(chunk);
+                        chunkRepository.save(knowledgeChunk);
 
                         tracer.debug("索引 Chunk 到 Elasticsearch...");
                         elasticsearchSearch.index(chunk);
@@ -163,23 +154,13 @@ public class IndexService {
 
             tracer.stepComplete("5.2 INDEX_CHUNKS", "success=" + successCount[0] + ", fail=" + failCount[0]);
 
-            Document.DocumentStatus finalStatus = failCount[0] > 0
-                    ? Document.DocumentStatus.FAILED
-                    : Document.DocumentStatus.INDEXED;
+            KnowledgeDocument.DocumentStatus finalStatus = failCount[0] > 0
+                    ? KnowledgeDocument.DocumentStatus.FAILED
+                    : KnowledgeDocument.DocumentStatus.COMPLETED;
             documentRepository.findById(documentId).ifPresent(d -> {
                 d.setStatus(finalStatus);
                 d.setChunkCount(successCount[0]);
-                d.setIndexedAt(LocalDateTime.now());
                 documentRepository.save(d);
-
-                // Update KB document count when document is successfully indexed
-                if (finalStatus == Document.DocumentStatus.INDEXED && d.getKbId() != null) {
-                    kbRepository.findById(d.getKbId()).ifPresent(kb -> {
-                        kb.setDocumentCount(kb.getDocumentCount() + 1);
-                        kbRepository.save(kb);
-                        tracer.info("更新知识库文档数量: kbId=%s, newCount=%d", kb.getId(), kb.getDocumentCount());
-                    });
-                }
             });
 
             tracer.stepComplete("5. INDEX_COMPLETE");
@@ -190,7 +171,7 @@ public class IndexService {
             log.error("Failed to index document: {}", e.getMessage(), e);
             if (documentId != null) {
                 documentRepository.findById(documentId).ifPresent(doc -> {
-                    doc.setStatus(Document.DocumentStatus.FAILED);
+                    doc.setStatus(KnowledgeDocument.DocumentStatus.FAILED);
                     documentRepository.save(doc);
                 });
             }

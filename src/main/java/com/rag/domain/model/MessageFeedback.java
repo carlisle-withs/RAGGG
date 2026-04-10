@@ -4,14 +4,18 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "t_conversation_summary", indexes = {
-    @Index(name = "idx_conv_id", columnList = "conversationId"),
-    @Index(name = "idx_user_id", columnList = "userId")
+@Table(name = "t_message_feedback", indexes = {
+    @Index(name = "idx_message_id", columnList = "messageId"),
+    @Index(name = "idx_fb_conversation_id", columnList = "conversationId"),
+    @Index(name = "idx_fb_user_id", columnList = "userId")
 })
-public class ConversationSummary {
+public class MessageFeedback {
 
     @Id
     private Long id;
+
+    @Column(name = "message_id", nullable = false)
+    private Long messageId;
 
     @Column(name = "conversation_id", nullable = false, length = 64)
     private String conversationId;
@@ -19,29 +23,25 @@ public class ConversationSummary {
     @Column(name = "user_id", nullable = false, length = 64)
     private String userId;
 
-    @Column(name = "last_message_id", nullable = false, length = 64)
-    private String lastMessageId;
+    @Column(nullable = false)
+    private Integer vote;
 
-    @Column(columnDefinition = "TEXT")
-    private String content;
+    @Column(length = 255)
+    private String reason;
 
-    @Column(name = "create_time")
+    @Column(length = 1024)
+    private String comment;
+
+    @Column(name = "create_time", nullable = false)
     private LocalDateTime createTime;
 
-    @Column(name = "update_time")
+    @Column(name = "update_time", nullable = false)
     private LocalDateTime updateTime;
 
-    @Column
+    @Column(nullable = false)
     private Boolean deleted = false;
 
-    public ConversationSummary() {
-    }
-
-    public ConversationSummary(String conversationId, String userId, String lastMessageId, String content) {
-        this.conversationId = conversationId;
-        this.userId = userId;
-        this.lastMessageId = lastMessageId;
-        this.content = content;
+    public MessageFeedback() {
     }
 
     @PrePersist
@@ -62,18 +62,25 @@ public class ConversationSummary {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Long getMessageId() { return messageId; }
+    public void setMessageId(Long messageId) { this.messageId = messageId; }
     public String getConversationId() { return conversationId; }
     public void setConversationId(String conversationId) { this.conversationId = conversationId; }
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
-    public String getLastMessageId() { return lastMessageId; }
-    public void setLastMessageId(String lastMessageId) { this.lastMessageId = lastMessageId; }
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
+    public Integer getVote() { return vote; }
+    public void setVote(Integer vote) { this.vote = vote; }
+    public String getReason() { return reason; }
+    public void setReason(String reason) { this.reason = reason; }
+    public String getComment() { return comment; }
+    public void setComment(String comment) { this.comment = comment; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
+
+    public static final int VOTE_UP = 1;
+    public static final int VOTE_DOWN = -1;
 }

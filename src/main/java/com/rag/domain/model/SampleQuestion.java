@@ -4,24 +4,22 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "t_user")
-public class User {
+@Table(name = "t_sample_question", indexes = {
+    @Index(name = "idx_sq_deleted", columnList = "deleted")
+})
+public class SampleQuestion {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true, nullable = false, length = 64)
-    private String username;
+    @Column(length = 64)
+    private String title;
 
-    @Column(nullable = false, length = 128)
-    private String password;
+    @Column(length = 255)
+    private String description;
 
-    @Column(nullable = false, length = 32)
-    private String role;
-
-    @Column(length = 128)
-    private String avatar;
+    @Column(nullable = false, length = 1024)
+    private String question;
 
     @Column(name = "create_time")
     private LocalDateTime createTime;
@@ -29,16 +27,10 @@ public class User {
     @Column(name = "update_time")
     private LocalDateTime updateTime;
 
-    @Column(nullable = false)
+    @Column
     private Boolean deleted = false;
 
-    public User() {
-    }
-
-    public User(String username, String password, String role) {
-        this.username = username;
-        this.password = password;
-        this.role = role;
+    public SampleQuestion() {
     }
 
     @PrePersist
@@ -59,21 +51,16 @@ public class User {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
-    public String getRole() { return role; }
-    public void setRole(String role) { this.role = role; }
-    public String getAvatar() { return avatar; }
-    public void setAvatar(String avatar) { this.avatar = avatar; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public String getQuestion() { return question; }
+    public void setQuestion(String question) { this.question = question; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
-
-    public static final String ROLE_ADMIN = "ADMIN";
-    public static final String ROLE_USER = "USER";
 }

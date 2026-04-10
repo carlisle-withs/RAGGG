@@ -1,9 +1,9 @@
 package com.rag.api.rest.document;
 
 import com.rag.application.document.DocumentApplicationService;
-import com.rag.domain.model.Document;
+import com.rag.domain.model.KnowledgeDocument;
 import com.rag.domain.model.User;
-import com.rag.domain.repository.DocumentRepository;
+import com.rag.domain.repository.KnowledgeDocumentRepository;
 import com.rag.domain.repository.KnowledgeBaseRepository;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -24,10 +24,10 @@ import java.util.stream.Collectors;
 public class DocumentController {
 
     private final DocumentApplicationService documentService;
-    private final DocumentRepository documentRepository;
+    private final KnowledgeDocumentRepository documentRepository;
     private final KnowledgeBaseRepository kbRepository;
 
-    public DocumentController(DocumentApplicationService documentService, DocumentRepository documentRepository,
+    public DocumentController(DocumentApplicationService documentService, KnowledgeDocumentRepository documentRepository,
                               KnowledgeBaseRepository kbRepository) {
         this.documentService = documentService;
         this.documentRepository = documentRepository;
@@ -36,23 +36,23 @@ public class DocumentController {
 
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> list(
-            @RequestParam(value = "kbId", required = false) String kbId) {
-        List<Document> documents;
+            @RequestParam(value = "kbId", required = false) Long kbId) {
+        List<KnowledgeDocument> documents;
         User currentUser = getCurrentUser();
 
         if (isAdmin()) {
-            documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+            documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"));
         } else {
-            List<String> userKbIds = kbRepository.findByOwner_Id(currentUser.getId())
+            List<Long> userKbIds = kbRepository.findByCreatedBy(currentUser.getUsername())
                     .stream().map(kb -> kb.getId()).collect(Collectors.toList());
 
-            documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"))
+            documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"))
                     .stream()
                     .filter(doc -> userKbIds.contains(doc.getKbId()))
                     .collect(Collectors.toList());
         }
 
-        if (kbId != null && !kbId.isEmpty()) {
+        if (kbId != null) {
             documents = documents.stream()
                     .filter(doc -> kbId.equals(doc.getKbId()))
                     .collect(Collectors.toList());
@@ -62,16 +62,12 @@ public class DocumentController {
                 .map(doc -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", doc.getId());
-                    map.put("fileName", doc.getFileName() != null ? doc.getFileName() : "");
+                    map.put("fileName", doc.getDocName() != null ? doc.getDocName() : "");
                     map.put("kbId", doc.getKbId() != null ? doc.getKbId() : "");
                     map.put("status", doc.getStatus() != null ? doc.getStatus().name() : "");
-                    map.put("createdAt", doc.getCreatedAt() != null ? doc.getCreatedAt().toString() : "");
+                    map.put("createdAt", doc.getCreateTime() != null ? doc.getCreateTime().toString() : "");
                     map.put("chunkCount", doc.getChunkCount());
-                    if (doc.getMetadata() != null && doc.getMetadata().containsKey("chunkStrategy")) {
-                        map.put("chunkStrategy", doc.getMetadata().get("chunkStrategy"));
-                    } else {
-                        map.put("chunkStrategy", "fixed");
-                    }
+                    map.put("chunkStrategy", doc.getChunkStrategy() != null ? doc.getChunkStrategy() : "fixed");
                     return map;
                 })
                 .collect(Collectors.toList());
@@ -91,7 +87,8 @@ public class DocumentController {
             @RequestParam(value = "similarityThreshold", required = false) Double similarityThreshold) {
 
         try {
-            if (kbId != null && !kbId.isEmpty() && !hasKbAccess(kbId)) {
+            Long kbIdLong = (kbId != null && !kbId.isEmpty()) ? Long.parseLong(kbId) : null;
+            if (kbIdLong != null && !hasKbAccess(kbIdLong)) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                         "error", "Access denied",
                         "message", "You don't have access to this knowledge base"
@@ -101,7 +98,7 @@ public class DocumentController {
             Map<String, Object> chunkParams = buildChunkParams(chunkStrategy, chunkSize, chunkOverlap,
                     minParagraphLength, maxParagraphLength, maxTokensPerChunk, similarityThreshold);
 
-            DocumentApplicationService.DocumentUploadResult result = documentService.upload(file, kbId, chunkStrategy, chunkParams);
+            DocumentApplicationService.DocumentUploadResult result = documentService.upload(file, kbIdLong, chunkStrategy, chunkParams);
 
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
                     "documentId", result.documentId(),
@@ -130,7 +127,8 @@ public class DocumentController {
             @RequestParam(value = "maxTokensPerChunk", required = false) Integer maxTokensPerChunk,
             @RequestParam(value = "similarityThreshold", required = false) Double similarityThreshold) {
 
-        if (kbId != null && !kbId.isEmpty() && !hasKbAccess(kbId)) {
+        Long kbIdLong = (kbId != null && !kbId.isEmpty()) ? Long.parseLong(kbId) : null;
+        if (kbIdLong != null && !hasKbAccess(kbIdLong)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "Access denied",
                     "message", "You don't have access to this knowledge base"
@@ -146,7 +144,7 @@ public class DocumentController {
                 Map<String, Object> chunkParams = buildChunkParams(chunkStrategy, chunkSize, chunkOverlap,
                         minParagraphLength, maxParagraphLength, maxTokensPerChunk, similarityThreshold);
 
-                DocumentApplicationService.DocumentUploadResult result = documentService.upload(file, kbId, chunkStrategy, chunkParams);
+                DocumentApplicationService.DocumentUploadResult result = documentService.upload(file, kbIdLong, chunkStrategy, chunkParams);
                 results.add(Map.of(
                         "documentId", result.documentId(),
                         "fileName", result.fileName(),
@@ -184,20 +182,20 @@ public class DocumentController {
     }
 
     @GetMapping("/{id}/status")
-    public ResponseEntity<Map<String, String>> getStatus(@PathVariable String id) {
+    public ResponseEntity<Map<String, String>> getStatus(@PathVariable Long id) {
         return documentRepository.findById(id)
                 .map(doc -> ResponseEntity.ok(Map.of(
-                        "documentId", doc.getId(),
+                        "documentId", doc.getId().toString(),
                         "status", doc.getStatus() != null ? doc.getStatus().name() : "UNKNOWN"
                 )))
                 .orElse(ResponseEntity.ok(Map.of(
-                        "documentId", id,
+                        "documentId", id.toString(),
                         "status", "NOT_FOUND"
                 )));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
         documentRepository.findById(id).ifPresent(doc -> {
             if (!isAdmin() && !hasKbAccess(doc.getKbId())) {
                 throw new SecurityException("Access denied");
@@ -207,11 +205,11 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-    private boolean hasKbAccess(String kbId) {
+    private boolean hasKbAccess(Long kbId) {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
         return kbRepository.findById(kbId)
-                .map(kb -> kb.getOwner() != null && kb.getOwner().getId().equals(currentUser.getId()))
+                .map(kb -> kb.getCreatedBy() != null && kb.getCreatedBy().equals(currentUser.getUsername()))
                 .orElse(false);
     }
 

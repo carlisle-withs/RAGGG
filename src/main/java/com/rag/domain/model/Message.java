@@ -4,24 +4,26 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "t_user")
-public class User {
+@Table(name = "t_message", indexes = {
+    @Index(name = "idx_msg_conversation_id", columnList = "conversationId"),
+    @Index(name = "idx_msg_user_id", columnList = "userId")
+})
+public class Message {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true, nullable = false, length = 64)
-    private String username;
+    @Column(name = "conversation_id", nullable = false, length = 64)
+    private String conversationId;
 
-    @Column(nullable = false, length = 128)
-    private String password;
+    @Column(name = "user_id", nullable = false, length = 64)
+    private String userId;
 
     @Column(nullable = false, length = 32)
     private String role;
 
-    @Column(length = 128)
-    private String avatar;
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String content;
 
     @Column(name = "create_time")
     private LocalDateTime createTime;
@@ -29,16 +31,17 @@ public class User {
     @Column(name = "update_time")
     private LocalDateTime updateTime;
 
-    @Column(nullable = false)
+    @Column
     private Boolean deleted = false;
 
-    public User() {
+    public Message() {
     }
 
-    public User(String username, String password, String role) {
-        this.username = username;
-        this.password = password;
+    public Message(String conversationId, String userId, String role, String content) {
+        this.conversationId = conversationId;
+        this.userId = userId;
         this.role = role;
+        this.content = content;
     }
 
     @PrePersist
@@ -59,14 +62,14 @@ public class User {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
-    public String getUsername() { return username; }
-    public void setUsername(String username) { this.username = username; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
+    public String getConversationId() { return conversationId; }
+    public void setConversationId(String conversationId) { this.conversationId = conversationId; }
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
-    public String getAvatar() { return avatar; }
-    public void setAvatar(String avatar) { this.avatar = avatar; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }
@@ -74,6 +77,7 @@ public class User {
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
 
-    public static final String ROLE_ADMIN = "ADMIN";
     public static final String ROLE_USER = "USER";
+    public static final String ROLE_ASSISTANT = "ASSISTANT";
+    public static final String ROLE_SYSTEM = "SYSTEM";
 }

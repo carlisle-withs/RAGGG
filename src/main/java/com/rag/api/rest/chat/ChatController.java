@@ -44,7 +44,7 @@ public class ChatController {
         }
 
         User currentUser = getCurrentUser();
-        String userId = currentUser != null ? currentUser.getId() : null;
+        String userId = currentUser != null ? currentUser.getId().toString() : null;
 
         ChatApplicationService.ChatResponse response = chatService.chat(
                 request.message(), kbId, userId, conversationId);
@@ -65,9 +65,14 @@ public class ChatController {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
         if (currentUser == null) return false;
-        return kbRepository.findById(kbId)
-                .map(kb -> kb.getOwner() != null && kb.getOwner().getId().equals(currentUser.getId()))
-                .orElse(false);
+        try {
+            Long id = Long.parseLong(kbId);
+            return kbRepository.findById(id)
+                    .map(kb -> kb.getCreatedBy() != null && kb.getCreatedBy().equals(currentUser.getUsername()))
+                    .orElse(false);
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private boolean isAdmin() {

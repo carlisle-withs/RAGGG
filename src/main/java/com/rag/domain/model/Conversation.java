@@ -4,11 +4,11 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "t_conversation_summary", indexes = {
-    @Index(name = "idx_conv_id", columnList = "conversationId"),
+@Table(name = "t_conversation", indexes = {
+    @Index(name = "idx_conversation_id", columnList = "conversationId"),
     @Index(name = "idx_user_id", columnList = "userId")
 })
-public class ConversationSummary {
+public class Conversation {
 
     @Id
     private Long id;
@@ -19,11 +19,11 @@ public class ConversationSummary {
     @Column(name = "user_id", nullable = false, length = 64)
     private String userId;
 
-    @Column(name = "last_message_id", nullable = false, length = 64)
-    private String lastMessageId;
+    @Column(nullable = false, length = 128)
+    private String title;
 
-    @Column(columnDefinition = "TEXT")
-    private String content;
+    @Column(name = "last_time")
+    private LocalDateTime lastTime;
 
     @Column(name = "create_time")
     private LocalDateTime createTime;
@@ -34,14 +34,13 @@ public class ConversationSummary {
     @Column
     private Boolean deleted = false;
 
-    public ConversationSummary() {
+    public Conversation() {
     }
 
-    public ConversationSummary(String conversationId, String userId, String lastMessageId, String content) {
+    public Conversation(String conversationId, String userId, String title) {
         this.conversationId = conversationId;
         this.userId = userId;
-        this.lastMessageId = lastMessageId;
-        this.content = content;
+        this.title = title;
     }
 
     @PrePersist
@@ -50,6 +49,7 @@ public class ConversationSummary {
             createTime = LocalDateTime.now();
         }
         updateTime = createTime;
+        lastTime = createTime;
         if (deleted == null) {
             deleted = false;
         }
@@ -66,10 +66,10 @@ public class ConversationSummary {
     public void setConversationId(String conversationId) { this.conversationId = conversationId; }
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
-    public String getLastMessageId() { return lastMessageId; }
-    public void setLastMessageId(String lastMessageId) { this.lastMessageId = lastMessageId; }
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public LocalDateTime getLastTime() { return lastTime; }
+    public void setLastTime(LocalDateTime lastTime) { this.lastTime = lastTime; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }

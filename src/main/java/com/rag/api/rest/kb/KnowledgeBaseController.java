@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -36,7 +35,7 @@ public class KnowledgeBaseController {
         if (isAdmin()) {
             kbs = kbRepository.findAll();
         } else {
-            kbs = kbRepository.findByOwner_Id(currentUser.getId());
+            kbs = kbRepository.findByCreatedBy(currentUser.getUsername());
         }
 
         List<Map<String, Object>> result = kbs.stream()
@@ -50,41 +49,17 @@ public class KnowledgeBaseController {
         User currentUser = getCurrentUser();
 
         String name = (String) request.get("name");
-        String description = (String) request.getOrDefault("description", "");
 
         KnowledgeBase kb = new KnowledgeBase();
-        kb.setId(UUID.randomUUID().toString());
         kb.setName(name);
-        kb.setDescription(description);
-        kb.setOwner(currentUser);
-        kb.setDocumentCount(0);
+        kb.setCreatedBy(currentUser.getUsername());
+        kb.setEmbeddingModel("BAAI/bge-m3");
 
+        if (request.containsKey("embeddingModel")) {
+            kb.setEmbeddingModel((String) request.get("embeddingModel"));
+        }
         if (request.containsKey("chunkStrategy")) {
             kb.setChunkStrategy((String) request.get("chunkStrategy"));
-        }
-        if (request.containsKey("chunkSize")) {
-            Object chunkSize = request.get("chunkSize");
-            kb.setChunkSize(chunkSize instanceof Number ? ((Number) chunkSize).intValue() : Integer.parseInt(chunkSize.toString()));
-        }
-        if (request.containsKey("chunkOverlap")) {
-            Object chunkOverlap = request.get("chunkOverlap");
-            kb.setChunkOverlap(chunkOverlap instanceof Number ? ((Number) chunkOverlap).intValue() : Integer.parseInt(chunkOverlap.toString()));
-        }
-        if (request.containsKey("minParagraphLength")) {
-            Object minPara = request.get("minParagraphLength");
-            kb.setMinParagraphLength(minPara instanceof Number ? ((Number) minPara).intValue() : Integer.parseInt(minPara.toString()));
-        }
-        if (request.containsKey("maxParagraphLength")) {
-            Object maxPara = request.get("maxParagraphLength");
-            kb.setMaxParagraphLength(maxPara instanceof Number ? ((Number) maxPara).intValue() : Integer.parseInt(maxPara.toString()));
-        }
-        if (request.containsKey("maxTokensPerChunk")) {
-            Object maxTokens = request.get("maxTokensPerChunk");
-            kb.setMaxTokensPerChunk(maxTokens instanceof Number ? ((Number) maxTokens).intValue() : Integer.parseInt(maxTokens.toString()));
-        }
-        if (request.containsKey("similarityThreshold")) {
-            Object similarity = request.get("similarityThreshold");
-            kb.setSimilarityThreshold(similarity instanceof Number ? ((Number) similarity).doubleValue() : Double.parseDouble(similarity.toString()));
         }
 
         KnowledgeBase saved = kbRepository.save(kb);
@@ -92,7 +67,7 @@ public class KnowledgeBaseController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
+    public ResponseEntity<Map<String, Object>> get(@PathVariable Long id) {
         return kbRepository.findById(id)
                 .map(kb -> {
                     if (!hasAccess(kb)) {
@@ -104,7 +79,7 @@ public class KnowledgeBaseController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> request) {
+    public ResponseEntity<Map<String, Object>> update(@PathVariable Long id, @RequestBody Map<String, Object> request) {
         return kbRepository.findById(id)
                 .map(kb -> {
                     if (!hasAccess(kb)) {
@@ -113,35 +88,11 @@ public class KnowledgeBaseController {
                     if (request.containsKey("name")) {
                         kb.setName((String) request.get("name"));
                     }
-                    if (request.containsKey("description")) {
-                        kb.setDescription((String) request.get("description"));
-                    }
                     if (request.containsKey("chunkStrategy")) {
                         kb.setChunkStrategy((String) request.get("chunkStrategy"));
                     }
-                    if (request.containsKey("chunkSize")) {
-                        Object chunkSize = request.get("chunkSize");
-                        kb.setChunkSize(chunkSize instanceof Number ? ((Number) chunkSize).intValue() : Integer.parseInt(chunkSize.toString()));
-                    }
-                    if (request.containsKey("chunkOverlap")) {
-                        Object chunkOverlap = request.get("chunkOverlap");
-                        kb.setChunkOverlap(chunkOverlap instanceof Number ? ((Number) chunkOverlap).intValue() : Integer.parseInt(chunkOverlap.toString()));
-                    }
-                    if (request.containsKey("minParagraphLength")) {
-                        Object minPara = request.get("minParagraphLength");
-                        kb.setMinParagraphLength(minPara instanceof Number ? ((Number) minPara).intValue() : Integer.parseInt(minPara.toString()));
-                    }
-                    if (request.containsKey("maxParagraphLength")) {
-                        Object maxPara = request.get("maxParagraphLength");
-                        kb.setMaxParagraphLength(maxPara instanceof Number ? ((Number) maxPara).intValue() : Integer.parseInt(maxPara.toString()));
-                    }
-                    if (request.containsKey("maxTokensPerChunk")) {
-                        Object maxTokens = request.get("maxTokensPerChunk");
-                        kb.setMaxTokensPerChunk(maxTokens instanceof Number ? ((Number) maxTokens).intValue() : Integer.parseInt(maxTokens.toString()));
-                    }
-                    if (request.containsKey("similarityThreshold")) {
-                        Object similarity = request.get("similarityThreshold");
-                        kb.setSimilarityThreshold(similarity instanceof Number ? ((Number) similarity).doubleValue() : Double.parseDouble(similarity.toString()));
+                    if (request.containsKey("embeddingModel")) {
+                        kb.setEmbeddingModel((String) request.get("embeddingModel"));
                     }
                     KnowledgeBase saved = kbRepository.save(kb);
                     return ResponseEntity.ok(toMap(saved));
@@ -150,7 +101,7 @@ public class KnowledgeBaseController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
         if (kbRepository.existsById(id)) {
             KnowledgeBase kb = kbRepository.findById(id).get();
             if (!hasAccess(kb)) {
@@ -165,7 +116,7 @@ public class KnowledgeBaseController {
     private boolean hasAccess(KnowledgeBase kb) {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
-        return kb.getOwner() != null && kb.getOwner().getId().equals(currentUser.getId());
+        return kb.getCreatedBy() != null && kb.getCreatedBy().equals(currentUser.getUsername());
     }
 
     private boolean isAdmin() {
@@ -182,18 +133,12 @@ public class KnowledgeBaseController {
         Map<String, Object> map = new HashMap<>();
         map.put("id", kb.getId());
         map.put("name", kb.getName() != null ? kb.getName() : "");
-        map.put("description", kb.getDescription() != null ? kb.getDescription() : "");
-        map.put("ownerId", kb.getOwnerId() != null ? kb.getOwnerId() : "");
-        map.put("documentCount", kb.getDocumentCount());
-        map.put("createdAt", kb.getCreatedAt() != null ? kb.getCreatedAt().toString() : "");
-        map.put("updatedAt", kb.getUpdatedAt() != null ? kb.getUpdatedAt().toString() : "");
+        map.put("embeddingModel", kb.getEmbeddingModel() != null ? kb.getEmbeddingModel() : "");
+        map.put("collectionName", kb.getCollectionName() != null ? kb.getCollectionName() : "");
+        map.put("createdBy", kb.getCreatedBy() != null ? kb.getCreatedBy() : "");
         map.put("chunkStrategy", kb.getChunkStrategy() != null ? kb.getChunkStrategy() : "intelligent");
-        map.put("chunkSize", kb.getChunkSize() != null ? kb.getChunkSize() : 512);
-        map.put("chunkOverlap", kb.getChunkOverlap() != null ? kb.getChunkOverlap() : 50);
-        map.put("minParagraphLength", kb.getMinParagraphLength() != null ? kb.getMinParagraphLength() : 50);
-        map.put("maxParagraphLength", kb.getMaxParagraphLength() != null ? kb.getMaxParagraphLength() : 2000);
-        map.put("maxTokensPerChunk", kb.getMaxTokensPerChunk() != null ? kb.getMaxTokensPerChunk() : 512);
-        map.put("similarityThreshold", kb.getSimilarityThreshold() != null ? kb.getSimilarityThreshold() : 0.7);
+        map.put("createdAt", kb.getCreateTime() != null ? kb.getCreateTime().toString() : "");
+        map.put("updatedAt", kb.getUpdateTime() != null ? kb.getUpdateTime().toString() : "");
         return map;
     }
 }

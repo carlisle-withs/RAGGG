@@ -1,14 +1,13 @@
 package com.rag.infrastructure.mq;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.domain.chunking.ChunkStrategy;
 import com.rag.domain.chunking.ChunkStrategyFactory;
 import com.rag.domain.event.DocumentEvent;
 import com.rag.domain.model.Chunk;
 import com.rag.domain.model.ChunkDTO;
-import com.rag.domain.model.Document;
-import com.rag.domain.repository.DocumentRepository;
+import com.rag.domain.model.KnowledgeDocument;
+import com.rag.domain.repository.KnowledgeDocumentRepository;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
 import org.slf4j.Logger;
@@ -34,13 +33,13 @@ public class ChunkService {
     private final DocumentEventProducer eventProducer;
     private final ChunkStrategyFactory chunkStrategyFactory;
     private final ObjectMapper objectMapper;
-    private final DocumentRepository documentRepository;
+    private final KnowledgeDocumentRepository documentRepository;
 
     public ChunkService(MinioStorage minioStorage,
                         DocumentEventProducer eventProducer,
                         ChunkStrategyFactory chunkStrategyFactory,
                         ObjectMapper objectMapper,
-                        DocumentRepository documentRepository) {
+                        KnowledgeDocumentRepository documentRepository) {
         this.minioStorage = minioStorage;
         this.eventProducer = eventProducer;
         this.chunkStrategyFactory = chunkStrategyFactory;
@@ -58,64 +57,52 @@ public class ChunkService {
         try {
             DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
             String traceId = event.getTraceId();
-            String documentId = event.getDocumentId();
+            Long documentId = Long.parseLong(event.getDocumentId());
 
-            TraceLogger tracer = TraceLogger.get(ChunkService.class, traceId, documentId);
+            TraceLogger tracer = TraceLogger.get(ChunkService.class, traceId, event.getDocumentId());
 
-            // 检查文档是否已删除
             var docOpt = documentRepository.findById(documentId);
-            if (docOpt.isEmpty() || docOpt.get().isDeleted()) {
+            if (docOpt.isEmpty() || docOpt.get().getDeleted()) {
                 tracer.info("文档已删除，跳过处理: documentId=%s", documentId);
                 return;
             }
 
             tracer.step("4. CHUNK_START");
 
-            // Update status to CHUNKING
-            docOpt.get().setStatus(Document.DocumentStatus.CHUNKING);
+            docOpt.get().setStatus(KnowledgeDocument.DocumentStatus.CHUNKING);
             documentRepository.save(docOpt.get());
 
             tracer.info("收到 Kafka 消息: topic=document-parsed, parsedMinioPath=%s", event.getParsedMinioPath());
 
-            // Download parsed text from MinIO
             tracer.info("下载解析后文本: parsedMinioPath=%s", event.getParsedMinioPath());
             String text = minioStorage.downloadAsString(event.getParsedMinioPath(), StandardCharsets.UTF_8);
             tracer.info("文本下载完成: textLength=%d characters", text.length());
 
-            // Get chunk strategy and params from event metadata
             Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
             String strategyName = String.valueOf(metadata.getOrDefault("chunkStrategy", "fixed"));
-            @SuppressWarnings("unchecked")
-            Map<String, Object> strategyParams = metadata.get("chunkParams") instanceof Map<?, ?> rawParams
-                    ? (Map<String, Object>) rawParams
-                    : Map.of();
 
             tracer.step("4.1 CHUNK_TEXT");
-            tracer.info("开始分块: strategy=%s, params=%s", strategyName, strategyParams);
+            tracer.info("开始分块: strategy=%s", strategyName);
 
-            // 获取 MIME 类型（由 ParseService 通过 Tika 检测）
             String mimeType = (String) metadata.get("mimeType");
             tracer.info("MIME 类型: %s", mimeType != null ? mimeType : "未检测到");
 
             List<Chunk> chunks;
 
-            // 如果是智能分块策略，使用 MIME 类型进行智能选择
             if ("intelligent".equalsIgnoreCase(strategyName) && mimeType != null) {
                 tracer.info("使用智能分块（基于 MIME 类型: %s）", mimeType);
                 chunks = chunkStrategyFactory.getIntelligentChunks(text, event.getDocumentId(), event.getKbId(), mimeType);
             } else {
-                // 使用指定的策略
-                ChunkStrategy strategy = chunkStrategyFactory.getStrategy(strategyName, strategyParams);
+                ChunkStrategy strategy = chunkStrategyFactory.getStrategy(strategyName, new HashMap<>());
                 chunks = strategy.chunk(text, event.getDocumentId(), event.getKbId());
             }
 
             tracer.info("分块完成: chunkCount=%d, strategy=%s", chunks.size(), strategyName);
 
-            // Log each chunk info
             for (int i = 0; i < Math.min(chunks.size(), 3); i++) {
                 Chunk c = chunks.get(i);
-                tracer.debug("Chunk[%d]: id=%s, length=%d, tokenCount=%d",
-                        i, c.getId(), c.getContent().length(), c.getTokenCount());
+                tracer.debug("Chunk[%d]: length=%d, tokenCount=%d",
+                        i, c.getContent().length(), c.getTokenCount());
             }
             if (chunks.size() > 3) {
                 tracer.debug("... and %d more chunks", chunks.size() - 3);
@@ -124,18 +111,16 @@ public class ChunkService {
             tracer.stepComplete("4.1 CHUNK_TEXT", "chunkCount=" + chunks.size());
             text = null;
 
-            // Update status to CHUNKED
             documentRepository.findById(documentId).ifPresent(doc -> {
-                doc.setStatus(Document.DocumentStatus.CHUNKED);
+                doc.setStatus(KnowledgeDocument.DocumentStatus.CHUNKED);
                 doc.setChunkCount(chunks.size());
                 documentRepository.save(doc);
             });
 
-            // Save chunks to MinIO (convert to DTOs to avoid JPA serialization issues)
             String chunksPath = event.getKbId() + "/" + event.getDocumentId() + "/chunks.json";
             Path tempChunksFile = Files.createTempFile("rag-chunks-", ".json");
             try {
-                try (JsonGenerator generator = objectMapper.getFactory().createGenerator(Files.newOutputStream(tempChunksFile))) {
+                try (com.fasterxml.jackson.core.JsonGenerator generator = objectMapper.getFactory().createGenerator(Files.newOutputStream(tempChunksFile))) {
                     generator.writeStartArray();
                     for (Chunk chunk : chunks) {
                         objectMapper.writeValue(generator, ChunkDTO.fromChunk(chunk));
@@ -150,7 +135,6 @@ public class ChunkService {
                 Files.deleteIfExists(tempChunksFile);
             }
 
-            // Send chunks to next stage
             tracer.step("4.2 SEND_KAFKA_MESSAGE");
             event.setEventType(DocumentEvent.EventType.CHUNKED);
             metadata.put("chunksMinioPath", chunksPath);
@@ -163,11 +147,10 @@ public class ChunkService {
 
         } catch (Exception e) {
             log.error("Failed to chunk document: {}", e.getMessage(), e);
-            // Update status to FAILED
             try {
                 DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
-                documentRepository.findById(event.getDocumentId()).ifPresent(doc -> {
-                    doc.setStatus(Document.DocumentStatus.FAILED);
+                documentRepository.findById(Long.parseLong(event.getDocumentId())).ifPresent(doc -> {
+                    doc.setStatus(KnowledgeDocument.DocumentStatus.FAILED);
                     documentRepository.save(doc);
                 });
             } catch (Exception ex) {

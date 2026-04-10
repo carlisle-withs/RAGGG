@@ -4,23 +4,19 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "t_knowledge_base")
-public class KnowledgeBase {
+@Table(name = "t_ingestion_pipeline")
+public class IngestionPipeline {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 128)
+    @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(name = "embedding_model", nullable = false, length = 128)
-    private String embeddingModel;
+    @Column(columnDefinition = "TEXT")
+    private String description;
 
-    @Column(name = "collection_name", unique = true, nullable = false, length = 128)
-    private String collectionName;
-
-    @Column(name = "created_by", nullable = false, length = 64)
+    @Column(name = "created_by", length = 64)
     private String createdBy;
 
     @Column(name = "updated_by", length = 64)
@@ -32,20 +28,10 @@ public class KnowledgeBase {
     @Column(name = "update_time", nullable = false)
     private LocalDateTime updateTime;
 
-    @Column(name = "chunk_strategy", length = 32)
-    private String chunkStrategy;
-
     @Column(nullable = false)
     private Boolean deleted = false;
 
-    public KnowledgeBase() {
-    }
-
-    public KnowledgeBase(String name, String embeddingModel, String collectionName, String createdBy) {
-        this.name = name;
-        this.embeddingModel = embeddingModel;
-        this.collectionName = collectionName;
-        this.createdBy = createdBy;
+    public IngestionPipeline() {
     }
 
     @PrePersist
@@ -68,10 +54,8 @@ public class KnowledgeBase {
     public void setId(Long id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
-    public String getEmbeddingModel() { return embeddingModel; }
-    public void setEmbeddingModel(String embeddingModel) { this.embeddingModel = embeddingModel; }
-    public String getCollectionName() { return collectionName; }
-    public void setCollectionName(String collectionName) { this.collectionName = collectionName; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public String getUpdatedBy() { return updatedBy; }
@@ -82,6 +66,4 @@ public class KnowledgeBase {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
-    public String getChunkStrategy() { return chunkStrategy; }
-    public void setChunkStrategy(String chunkStrategy) { this.chunkStrategy = chunkStrategy; }
 }

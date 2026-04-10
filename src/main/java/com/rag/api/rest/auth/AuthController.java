@@ -1,10 +1,6 @@
 package com.rag.api.rest.auth;
 
-import com.rag.domain.model.Permission;
-import com.rag.domain.model.Role;
 import com.rag.domain.model.User;
-import com.rag.domain.repository.PermissionRepository;
-import com.rag.domain.repository.RoleRepository;
 import com.rag.domain.repository.UserRepository;
 import com.rag.infrastructure.security.JwtUtils;
 import jakarta.validation.Valid;
@@ -21,26 +17,20 @@ import java.util.Optional;
 public class AuthController {
 
     private final UserRepository userRepository;
-    private final RoleRepository roleRepository;
-    private final PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
 
-    public AuthController(UserRepository userRepository, RoleRepository roleRepository,
-                          PermissionRepository permissionRepository, PasswordEncoder passwordEncoder,
-                          JwtUtils jwtUtils) {
+    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils) {
         this.userRepository = userRepository;
-        this.roleRepository = roleRepository;
-        this.permissionRepository = permissionRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
     }
 
-    public record RegisterRequest(String username, String password, String email) {}
+    public record RegisterRequest(String username, String password) {}
     public record LoginRequest(String username, String password) {}
     public record RefreshRequest(String refreshToken) {}
 
-    public record UserDto(String id, String username, String email, String role) {}
+    public record UserDto(String id, String username, String role) {}
     public record AuthResponse(String token, String refreshToken, UserDto user, long expiresIn) {}
     public record ErrorResponse(String error, String message) {}
 
@@ -49,18 +39,8 @@ public class AuthController {
         if (userRepository.existsByUsername(request.username())) {
             return ResponseEntity.badRequest().body(new ErrorResponse("USERNAME_EXISTS", "Username already exists"));
         }
-        if (request.email() != null && !request.email().isEmpty() && userRepository.existsByEmail(request.email())) {
-            return ResponseEntity.badRequest().body(new ErrorResponse("EMAIL_EXISTS", "Email already exists"));
-        }
 
-        Optional<Role> userRoleOpt = roleRepository.findByName(Role.USER);
-        if (userRoleOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponse("ROLE_NOT_FOUND", "Default USER role not found"));
-        }
-
-        User user = new User(request.username(), passwordEncoder.encode(request.password()), request.email());
-        user.setRole(userRoleOpt.get());
+        User user = new User(request.username(), passwordEncoder.encode(request.password()), User.ROLE_USER);
 
         User savedUser = userRepository.save(user);
 
@@ -68,10 +48,9 @@ public class AuthController {
         String refreshToken = jwtUtils.generateRefreshToken(savedUser);
 
         UserDto userDto = new UserDto(
-                savedUser.getId(),
+                savedUser.getId().toString(),
                 savedUser.getUsername(),
-                savedUser.getEmail(),
-                savedUser.getRole().getName()
+                savedUser.getRole()
         );
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -88,7 +67,7 @@ public class AuthController {
         }
 
         User user = userOpt.get();
-        if (!user.isEnabled()) {
+        if (user.getDeleted() != null && user.getDeleted()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(new ErrorResponse("ACCOUNT_DISABLED", "Account is disabled"));
         }
@@ -97,10 +76,9 @@ public class AuthController {
         String refreshToken = jwtUtils.generateRefreshToken(user);
 
         UserDto userDto = new UserDto(
-                user.getId(),
+                user.getId().toString(),
                 user.getUsername(),
-                user.getEmail(),
-                user.getRole() != null ? user.getRole().getName() : "USER"
+                user.getRole() != null ? user.getRole() : "USER"
         );
 
         return ResponseEntity.ok(new AuthResponse(token, refreshToken, userDto, jwtUtils.getExpiration()));
@@ -128,10 +106,9 @@ public class AuthController {
         String newRefreshToken = jwtUtils.generateRefreshToken(user);
 
         UserDto userDto = new UserDto(
-                user.getId(),
+                user.getId().toString(),
                 user.getUsername(),
-                user.getEmail(),
-                user.getRole() != null ? user.getRole().getName() : "USER"
+                user.getRole() != null ? user.getRole() : "USER"
         );
 
         return ResponseEntity.ok(new AuthResponse(newToken, newRefreshToken, userDto, jwtUtils.getExpiration()));

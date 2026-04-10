@@ -70,7 +70,7 @@ public class MemoryService {
         } else {
             Optional<ConversationSummary> dbSummary = summaryRepository.findByUserIdAndConversationId(userId, conversationId);
             if (dbSummary.isPresent()) {
-                existingSummary = dbSummary.get().getSummary();
+                existingSummary = dbSummary.get().getContent();
                 redisTemplate.opsForValue().set(summaryKey, existingSummary, Duration.ofDays(ttlDays));
                 log.debug("Loaded summary from MySQL for conversation: {}", conversationId);
             }
@@ -181,10 +181,9 @@ public class MemoryService {
             // 保存到 MySQL
             ConversationSummary entity = summaryRepository
                     .findByUserIdAndConversationId(userId, conversationId)
-                    .orElse(new ConversationSummary(userId, conversationId, summary, (int) messagesJson.size()));
+                    .orElse(new ConversationSummary(conversationId, userId, null, summary));
 
-            entity.setSummary(summary);
-            entity.setMessageCount((int) messagesJson.size());
+            entity.setContent(summary);
             summaryRepository.save(entity);
 
             // 保存到 Redis

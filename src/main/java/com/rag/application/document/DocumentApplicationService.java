@@ -1,8 +1,8 @@
 package com.rag.application.document;
 
 import com.rag.domain.event.DocumentEvent;
-import com.rag.domain.model.Document;
-import com.rag.domain.repository.DocumentRepository;
+import com.rag.domain.model.KnowledgeDocument;
+import com.rag.domain.repository.KnowledgeDocumentRepository;
 import com.rag.infrastructure.mq.DocumentEventProducer;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
@@ -22,32 +22,30 @@ public class DocumentApplicationService {
 
     private final MinioStorage minioStorage;
     private final DocumentEventProducer eventProducer;
-    private final DocumentRepository documentRepository;
+    private final KnowledgeDocumentRepository documentRepository;
 
     public DocumentApplicationService(MinioStorage minioStorage,
                                      DocumentEventProducer eventProducer,
-                                     DocumentRepository documentRepository) {
+                                     KnowledgeDocumentRepository documentRepository) {
         this.minioStorage = minioStorage;
         this.eventProducer = eventProducer;
         this.documentRepository = documentRepository;
     }
 
-    public DocumentUploadResult upload(MultipartFile file, String kbId, String chunkStrategy, Map<String, Object> chunkParams) {
-        // 生成 traceId 用于全链路追踪
+    public DocumentUploadResult upload(MultipartFile file, Long kbId, String chunkStrategy, Map<String, Object> chunkParams) {
         String traceId = UUID.randomUUID().toString();
 
         try {
-            String documentId = UUID.randomUUID().toString();
+            Long documentId = System.currentTimeMillis();
             String fileName = file.getOriginalFilename();
             String fileType = file.getContentType();
 
-            TraceLogger tracer = TraceLogger.get(DocumentApplicationService.class, traceId, documentId);
+            TraceLogger tracer = TraceLogger.get(DocumentApplicationService.class, traceId, documentId.toString());
 
             tracer.step("1. UPLOAD_START");
             tracer.info("开始上传文件: fileName=%s, size=%d, kbId=%s, chunkStrategy=%s",
                     fileName, file.getSize(), kbId, chunkStrategy);
 
-            // Upload to MinIO using stream
             String objectName = kbId + "/" + documentId + "/" + fileName;
 
             tracer.info("上传到 MinIO: path=%s", objectName);
@@ -55,31 +53,28 @@ public class DocumentApplicationService {
 
             tracer.stepComplete("1. UPLOAD_MINIO", objectName);
 
-            // Save Document to database immediately
-            Document doc = new Document();
+            KnowledgeDocument doc = new KnowledgeDocument();
             doc.setId(documentId);
-            doc.setFileName(fileName);
+            doc.setDocName(fileName);
             doc.setFileType(fileType);
             doc.setKbId(kbId);
-            doc.setMinioPath(objectName);
-            doc.setStatus(Document.DocumentStatus.UPLOADED);
+            doc.setFileUrl(objectName);
+            doc.setStatus(KnowledgeDocument.DocumentStatus.PENDING);
 
-            // Prepare metadata with chunk strategy
             Map<String, String> metadata = new HashMap<>();
             metadata.put("fileSize", String.valueOf(file.getSize()));
             metadata.put("chunkStrategy", chunkStrategy);
             metadata.put("traceId", traceId);
-            doc.setMetadata(metadata);
+            doc.setChunkStrategy(chunkStrategy);
 
             documentRepository.save(doc);
             tracer.info("文档保存到数据库: documentId=%s, status=UPLOADED", documentId);
 
-            // 创建事件，包含 traceId
             Map<String, Object> eventMetadata = new HashMap<>();
-            eventMetadata.putAll(metadata);
+            eventMetadata.putAll(chunkParams);
+            eventMetadata.put("fileSize", String.valueOf(file.getSize()));
             eventMetadata.put("chunkStrategy", chunkStrategy);
-            eventMetadata.put("chunkParams", new HashMap<>(chunkParams));
-            DocumentEvent event = DocumentEvent.create(documentId, kbId, fileName, fileType, objectName, eventMetadata);
+            DocumentEvent event = DocumentEvent.create(documentId.toString(), kbId.toString(), fileName, fileType, objectName, eventMetadata);
             event.setTraceId(traceId);
 
             tracer.step("2. SEND_KAFKA_MESSAGE");
@@ -90,7 +85,7 @@ public class DocumentApplicationService {
             tracer.stepComplete("2. KAFKA_SENT", "document-upload");
             tracer.info("文档上传完成: documentId=%s, traceId=%s", documentId, traceId);
 
-            return new DocumentUploadResult(documentId, fileName, "UPLOADED", traceId);
+            return new DocumentUploadResult(documentId.toString(), fileName, "UPLOADED", traceId);
 
         } catch (Exception e) {
             log.error("[%s] Upload failed: %s".formatted(traceId, e.getMessage()), e);
