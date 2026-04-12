@@ -1,5 +1,10 @@
 package com.rag.application.chat;
 
+import com.rag.application.chat.react.ComplexityRouter;
+import com.rag.application.chat.react.ReActContext;
+import com.rag.application.chat.react.ReActEngine;
+import com.rag.application.chat.react.model.ReActResult;
+import com.rag.application.chat.react.model.TaskComplexity;
 import com.rag.application.retrieval.RetrievalApplicationService;
 import com.rag.infrastructure.llm.ChatModelService;
 import org.slf4j.Logger;
@@ -19,17 +24,23 @@ public class ChatApplicationService {
     private final MemoryService memoryService;
     private final IntentClassifier intentClassifier;
     private final QueryRewriter queryRewriter;
+    private final ComplexityRouter complexityRouter;
+    private final ReActEngine reActEngine;
 
     public ChatApplicationService(ChatModelService chatModel,
                                   RetrievalApplicationService retrievalService,
                                   MemoryService memoryService,
                                   IntentClassifier intentClassifier,
-                                  QueryRewriter queryRewriter) {
+                                  QueryRewriter queryRewriter,
+                                  ComplexityRouter complexityRouter,
+                                  ReActEngine reActEngine) {
         this.chatModel = chatModel;
         this.retrievalService = retrievalService;
         this.memoryService = memoryService;
         this.intentClassifier = intentClassifier;
         this.queryRewriter = queryRewriter;
+        this.complexityRouter = complexityRouter;
+        this.reActEngine = reActEngine;
     }
 
     /**
@@ -37,59 +48,91 @@ public class ChatApplicationService {
      *
      * 完整流程:
      * 1. 获取会话上下文 (记忆)
-     * 2. 意图识别
-     * 3. 查询改写 (可选)
-     * 4. RAG 检索 (如果需要)
-     * 5. 构建 Prompt
-     * 6. LLM 生成
-     * 7. 保存对话记忆
+     * 2. 复杂度路由
+     * 3. 意图识别
+     * 4. 根据复杂度执行:
+     *    - 简单: 原流程 (意图识别 → RAG → 生成)
+     *    - 复杂: ReAct 引擎
+     * 5. 保存对话记忆
      */
     public ChatResponse chat(String message, String kbId, String userId, String conversationId) {
         log.info("=== Chat Process Start ===");
         log.info("Message: {}, KB: {}, User: {}, Conv: {}", message, kbId, userId, conversationId);
 
         try {
-            // 1. 获取会话上下文
             String memoryContext = "";
+            String summary = null;
             if (conversationId != null && userId != null) {
                 memoryContext = memoryService.buildContextPrompt(userId, conversationId);
+                MemoryService.ConversationContext ctx = memoryService.getContext(userId, conversationId);
+                summary = ctx.summary();
                 log.info("Memory context loaded: {} chars", memoryContext.length());
             }
 
-            // 2. 意图识别
-            IntentClassifier.IntentResult intentResult = intentClassifier.classify(message);
-            log.info("Intent: {}, Confidence: {}", intentResult.intent(), intentResult.confidence());
+            TaskComplexity complexity = complexityRouter.classify(message, memoryContext);
+            log.info("Task complexity: {}", complexity);
 
-            // 3. 根据意图处理
             String response;
             List<RetrievalApplicationService.RetrievalResult> sources;
 
-            if (intentClassifier.needsRetrieval(intentResult)) {
-                // 知识库问答: 检索 + 生成
-                sources = performRAG(message, kbId);
-                String ragContext = buildContext(sources);
-                String prompt = buildPrompt(message, ragContext, memoryContext, intentResult);
-                response = chatModel.generate(prompt);
-            } else {
-                // 非检索类: 直接生成
+            if (complexity == TaskComplexity.COMPLEX && reActEngine.isEnabled()) {
+                log.info("Using ReAct engine for complex task");
+                response = executeReAct(message, kbId, memoryContext, summary);
                 sources = List.of();
-                String prompt = buildPrompt(message, "", memoryContext, intentResult);
+            } else {
+                log.info("Using simple RAG flow");
+                sources = performSimpleFlow(message, kbId, memoryContext);
+                response = sources.isEmpty() ? null : buildSimpleResponse(message, kbId, memoryContext, sources);
+            }
+
+            if (response == null) {
+                IntentClassifier.IntentResult intentResult = intentClassifier.classify(message);
+                String prompt = buildPrompt(message, buildContext(sources), memoryContext, intentResult);
                 response = chatModel.generate(prompt);
             }
 
-            // 4. 保存对话记忆
             if (conversationId != null && userId != null) {
                 memoryService.addMessage(userId, conversationId, "user", message);
                 memoryService.addMessage(userId, conversationId, "assistant", response);
             }
 
             log.info("=== Chat Process End ===");
-            return new ChatResponse(response, sources, intentResult, conversationId);
+            return new ChatResponse(response, sources, null, conversationId);
 
         } catch (Exception e) {
             log.error("Chat failed", e);
             return new ChatResponse("抱歉，发生了错误：" + e.getMessage(), List.of(), null, conversationId);
         }
+    }
+
+    private String executeReAct(String message, String kbId, String memoryContext, String summary) {
+        ReActContext context = new ReActContext(message, memoryContext, summary);
+        ReActResult result = reActEngine.execute(message, kbId, context);
+
+        if (result.isDegraded()) {
+            log.info("ReAct degraded, using fallback response");
+            return result.getAnswer();
+        }
+
+        return result.getAnswer();
+    }
+
+    private List<RetrievalApplicationService.RetrievalResult> performSimpleFlow(String message, String kbId, String memoryContext) {
+        IntentClassifier.IntentResult intentResult = intentClassifier.classify(message);
+        log.info("Intent: {}, Confidence: {}", intentResult.intent(), intentResult.confidence());
+
+        if (intentClassifier.needsRetrieval(intentResult)) {
+            return performRAG(message, kbId);
+        }
+        return List.of();
+    }
+
+    private String buildSimpleResponse(String message, String kbId, String memoryContext,
+                                      List<RetrievalApplicationService.RetrievalResult> sources) {
+        String ragContext = buildContext(sources);
+        IntentClassifier.IntentResult intentResult = intentClassifier.classify(message);
+        String prompt = buildPrompt(message, ragContext, memoryContext, intentResult);
+        return chatModel.generate(prompt);
     }
 
     /**

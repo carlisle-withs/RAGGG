@@ -1,9 +1,11 @@
 package com.rag.infrastructure.mq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rag.config.AppConfig;
 import com.rag.domain.event.DocumentEvent;
 import com.rag.domain.model.KnowledgeDocument;
 import com.rag.domain.repository.KnowledgeDocumentRepository;
+import com.rag.infrastructure.extraction.service.EnhancedContentProcessor;
 import com.rag.infrastructure.storage.MinioStorage;
 import com.rag.util.TraceLogger;
 import org.apache.tika.Tika;
@@ -13,6 +15,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,16 +33,23 @@ public class ParseService {
     private final ObjectMapper objectMapper;
     private final Tika tika;
     private final KnowledgeDocumentRepository documentRepository;
+    private final EnhancedContentProcessor enhancedContentProcessor;
+    private final boolean extractionEnabled;
 
     public ParseService(MinioStorage minioStorage,
                        DocumentEventProducer eventProducer,
                        ObjectMapper objectMapper,
-                       KnowledgeDocumentRepository documentRepository) {
+                       KnowledgeDocumentRepository documentRepository,
+                       EnhancedContentProcessor enhancedContentProcessor,
+                       AppConfig appConfig) {
         this.minioStorage = minioStorage;
         this.eventProducer = eventProducer;
         this.objectMapper = objectMapper;
         this.documentRepository = documentRepository;
+        this.enhancedContentProcessor = enhancedContentProcessor;
+        this.extractionEnabled = appConfig.getExtraction().isEnabled();
         this.tika = new Tika();
+        log.info("ParseService initialized: extractionEnabled={}", extractionEnabled);
     }
 
     @KafkaListener(topics = KafkaTopics.DOCUMENT_UPLOAD, groupId = "${spring.kafka.consumer.group-id}-parse")
@@ -74,6 +84,8 @@ public class ParseService {
             int textLength;
             String mimeType = "application/octet-stream";
             Path tempParsedFile = Files.createTempFile("rag-parsed-", ".txt");
+            
+            byte[] documentData;
             try (InputStream fileStream = minioStorage.getObjectStream(event.getMinioPath())) {
                 tracer.step("3.1 EXTRACT_TEXT");
                 tracer.info("使用 Tika 解析文档...");
@@ -82,13 +94,34 @@ public class ParseService {
                 tracer.info("Tika 检测到 MIME 类型: %s", mimeType);
             }
             try (InputStream fileStream = minioStorage.getObjectStream(event.getMinioPath())) {
-                String parsedText = tika.parseToString(fileStream);
-                textLength = parsedText.length();
-                tracer.info("文本提取完成: textLength=%d characters", textLength);
-
-                tracer.info("上传解析后文本到 MinIO: path=%s", parsedPath);
-                Files.writeString(tempParsedFile, parsedText, StandardCharsets.UTF_8);
+                documentData = fileStream.readAllBytes();
             }
+            
+            String parsedText;
+            int imageCount = 0;
+            int tableCount = 0;
+            
+            if (extractionEnabled && enhancedContentProcessor.isEnabled()) {
+                tracer.info("使用增强内容提取 (图片 OCR + 表格解析)...");
+                EnhancedContentProcessor.EnhancementResult result = 
+                    enhancedContentProcessor.process(documentData, event.getDocumentId(), event.getKbId());
+                parsedText = result.getTextContent();
+                if (parsedText == null) {
+                    parsedText = tika.parseToString(new ByteArrayInputStream(documentData));
+                }
+                imageCount = result.getImages().size();
+                tableCount = result.getTables().size();
+                tracer.info("增强提取完成: textLength=%d, images=%d, tables=%d", 
+                    parsedText.length(), imageCount, tableCount);
+            } else {
+                parsedText = tika.parseToString(new ByteArrayInputStream(documentData));
+                tracer.info("文本提取完成 (标准模式): textLength=%d characters", parsedText.length());
+            }
+            
+            textLength = parsedText.length();
+            tracer.info("上传解析后文本到 MinIO: path=%s", parsedPath);
+            Files.writeString(tempParsedFile, parsedText, StandardCharsets.UTF_8);
+            
             try (InputStream parsedStream = Files.newInputStream(tempParsedFile)) {
                 minioStorage.upload(parsedPath, parsedStream, Files.size(tempParsedFile), "text/plain");
             }
@@ -106,6 +139,11 @@ public class ParseService {
 
             Map<String, Object> metadata = event.getMetadata() != null ? event.getMetadata() : new HashMap<>();
             metadata.put("mimeType", mimeType);
+            if (extractionEnabled) {
+                metadata.put("extractionEnabled", true);
+                metadata.put("imageCount", imageCount);
+                metadata.put("tableCount", tableCount);
+            }
             event.setMetadata(metadata);
 
             tracer.info("发送 Kafka 消息: topic=document-parsed, parsedPath=%s, mimeType=%s", parsedPath, mimeType);

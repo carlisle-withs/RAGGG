@@ -16,6 +16,7 @@ public class AppConfig {
     private Embedding embedding = new Embedding();
     private Chunking chunking = new Chunking();
     private Minio minio = new Minio();
+    private Extraction extraction = new Extraction();
 
     public static class App {
         private String host = "0.0.0.0";
@@ -154,4 +155,231 @@ public class AppConfig {
     public void setChunking(Chunking chunking) { this.chunking = chunking; }
     public Minio getMinio() { return minio; }
     public void setMinio(Minio minio) { this.minio = minio; }
+    public Extraction getExtraction() { return extraction; }
+    public void setExtraction(Extraction extraction) { this.extraction = extraction; }
+
+    private React react = new React();
+
+    public React getReact() { return react; }
+    public void setReact(React react) { this.react = react; }
+
+    public static class Extraction {
+        private boolean enabled = false;
+        private Image image = new Image();
+        private Table table = new Table();
+        private Processing processing = new Processing();
+
+        public static class Image {
+            private boolean enabled = true;
+            private int minSize = 50;
+            private Ocr ocr = new Ocr();
+
+            public static class Ocr {
+                private String provider = "aliyun";
+                private String apiKey = "";
+                private String apiSecret = "";
+                private String region = "cn-shanghai";
+                private String language = "ZH-CN";
+
+                public String getProvider() { return provider; }
+                public void setProvider(String provider) { this.provider = provider; }
+                public String getApiKey() { return apiKey; }
+                public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+                public String getApiSecret() { return apiSecret; }
+                public void setApiSecret(String apiSecret) { this.apiSecret = apiSecret; }
+                public String getRegion() { return region; }
+                public void setRegion(String region) { this.region = region; }
+                public String getLanguage() { return language; }
+                public void setLanguage(String language) { this.language = language; }
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public int getMinSize() { return minSize; }
+            public void setMinSize(int minSize) { this.minSize = minSize; }
+            public Ocr getOcr() { return ocr; }
+            public void setOcr(Ocr ocr) { this.ocr = ocr; }
+        }
+
+        public static class Table {
+            private boolean enabled = true;
+            private Parser parser = new Parser();
+
+            public static class Parser {
+                private String provider = "aliyun";
+                private String apiKey = "";
+                private String apiSecret = "";
+                private String region = "cn-shanghai";
+                private String outputFormat = "html";
+
+                public String getProvider() { return provider; }
+                public void setProvider(String provider) { this.provider = provider; }
+                public String getApiKey() { return apiKey; }
+                public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+                public String getApiSecret() { return apiSecret; }
+                public void setApiSecret(String apiSecret) { this.apiSecret = apiSecret; }
+                public String getRegion() { return region; }
+                public void setRegion(String region) { this.region = region; }
+                public String getOutputFormat() { return outputFormat; }
+                public void setOutputFormat(String outputFormat) { this.outputFormat = outputFormat; }
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public Parser getParser() { return parser; }
+            public void setParser(Parser parser) { this.parser = parser; }
+        }
+
+        public static class Processing {
+            private boolean parallel = true;
+            private int maxConcurrency = 4;
+            private int timeoutSeconds = 30;
+            private int retryCount = 2;
+
+            public boolean isParallel() { return parallel; }
+            public void setParallel(boolean parallel) { this.parallel = parallel; }
+            public int getMaxConcurrency() { return maxConcurrency; }
+            public void setMaxConcurrency(int maxConcurrency) { this.maxConcurrency = maxConcurrency; }
+            public int getTimeoutSeconds() { return timeoutSeconds; }
+            public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
+            public int getRetryCount() { return retryCount; }
+            public void setRetryCount(int retryCount) { this.retryCount = retryCount; }
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Image getImage() { return image; }
+        public void setImage(Image image) { this.image = image; }
+        public Table getTable() { return table; }
+        public void setTable(Table table) { this.table = table; }
+        public Processing getProcessing() { return processing; }
+        public void setProcessing(Processing processing) { this.processing = processing; }
+    }
+
+    public static class React {
+        private boolean enabled = false;
+        private Router router = new Router();
+        private Actions actions = new Actions();
+        private Cache cache = new Cache();
+        private LoopDetection loopDetection = new LoopDetection();
+        private LightweightLlm lightweightLlm = new LightweightLlm();
+
+        public static class Router {
+            private boolean enabled = true;
+            private String model = "Qwen2-1.5B";
+            private int timeoutMs = 100;
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public String getModel() { return model; }
+            public void setModel(String model) { this.model = model; }
+            public int getTimeoutMs() { return timeoutMs; }
+            public void setTimeoutMs(int timeoutMs) { this.timeoutMs = timeoutMs; }
+        }
+
+        public static class Actions {
+            private Knowledge knowledge = new Knowledge();
+            private Database database = new Database();
+            private Conversation conversation = new Conversation();
+
+            public static class Knowledge {
+                private boolean enabled = true;
+                private int topK = 5;
+
+                public boolean isEnabled() { return enabled; }
+                public void setEnabled(boolean enabled) { this.enabled = enabled; }
+                public int getTopK() { return topK; }
+                public void setTopK(int topK) { this.topK = topK; }
+            }
+
+            public static class Database {
+                private boolean enabled = true;
+
+                public boolean isEnabled() { return enabled; }
+                public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            }
+
+            public static class Conversation {
+                private boolean enabled = true;
+                private int windowSize = 10;
+
+                public boolean isEnabled() { return enabled; }
+                public void setEnabled(boolean enabled) { this.enabled = enabled; }
+                public int getWindowSize() { return windowSize; }
+                public void setWindowSize(int windowSize) { this.windowSize = windowSize; }
+            }
+
+            public Knowledge getKnowledge() { return knowledge; }
+            public void setKnowledge(Knowledge knowledge) { this.knowledge = knowledge; }
+            public Database getDatabase() { return database; }
+            public void setDatabase(Database database) { this.database = database; }
+            public Conversation getConversation() { return conversation; }
+            public void setConversation(Conversation conversation) { this.conversation = conversation; }
+        }
+
+        public static class Cache {
+            private boolean enabled = true;
+            private SimilarityThreshold similarityThreshold = new SimilarityThreshold();
+
+            public static class SimilarityThreshold {
+                private float directHit = 0.95f;
+                private float review = 0.85f;
+
+                public float getDirectHit() { return directHit; }
+                public void setDirectHit(float directHit) { this.directHit = directHit; }
+                public float getReview() { return review; }
+                public void setReview(float review) { this.review = review; }
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public SimilarityThreshold getSimilarityThreshold() { return similarityThreshold; }
+            public void setSimilarityThreshold(SimilarityThreshold similarityThreshold) { this.similarityThreshold = similarityThreshold; }
+        }
+
+        public static class LoopDetection {
+            private boolean enabled = true;
+            private int maxIterations = 5;
+            private int fingerprintMatchCount = 3;
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public int getMaxIterations() { return maxIterations; }
+            public void setMaxIterations(int maxIterations) { this.maxIterations = maxIterations; }
+            public int getFingerprintMatchCount() { return fingerprintMatchCount; }
+            public void setFingerprintMatchCount(int fingerprintMatchCount) { this.fingerprintMatchCount = fingerprintMatchCount; }
+        }
+
+        public static class LightweightLlm {
+            private String model = "Qwen2-1.5B";
+            private String provider = "local";
+            private String baseUrl = "http://localhost:8081/v1";
+            private String apiKey = "dummy";
+            private int timeoutMs = 10000;
+
+            public String getModel() { return model; }
+            public void setModel(String model) { this.model = model; }
+            public String getProvider() { return provider; }
+            public void setProvider(String provider) { this.provider = provider; }
+            public String getBaseUrl() { return baseUrl; }
+            public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+            public String getApiKey() { return apiKey; }
+            public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+            public int getTimeoutMs() { return timeoutMs; }
+            public void setTimeoutMs(int timeoutMs) { this.timeoutMs = timeoutMs; }
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Router getRouter() { return router; }
+        public void setRouter(Router router) { this.router = router; }
+        public Actions getActions() { return actions; }
+        public void setActions(Actions actions) { this.actions = actions; }
+        public Cache getCache() { return cache; }
+        public void setCache(Cache cache) { this.cache = cache; }
+        public LoopDetection getLoopDetection() { return loopDetection; }
+        public void setLoopDetection(LoopDetection loopDetection) { this.loopDetection = loopDetection; }
+        public LightweightLlm getLightweightLlm() { return lightweightLlm; }
+        public void setLightweightLlm(LightweightLlm lightweightLlm) { this.lightweightLlm = lightweightLlm; }
+    }
 }

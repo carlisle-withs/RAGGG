@@ -63,3 +63,78 @@ minio:
   access-key: minioadmin
   secret-key: minioadmin
   bucket: rag-documents
+
+# ====================================================
+# 文档增强提取配置（图片 OCR + 表格解析）
+# ====================================================
+extraction:
+  enabled: false
+  
+  image:
+    enabled: true
+    min-size: 50
+    ocr:
+      provider: aliyun
+      api-key: YOUR_ALIYUN_OCR_API_KEY_HERE
+      api-secret: YOUR_ALIYUN_OCR_API_SECRET_HERE
+      region: cn-shanghai
+      language: ZH-CN
+  
+  table:
+    enabled: true
+    parser:
+      provider: aliyun
+      api-key: YOUR_ALIYUN_TABLE_API_KEY_HERE
+      api-secret: YOUR_ALIYUN_TABLE_API_SECRET_HERE
+      region: cn-shanghai
+      output-format: html
+  
+  processing:
+    parallel: true
+    max-concurrency: 4
+    timeout-seconds: 30
+    retry-count: 2
+
+# ====================================================
+# ReAct 执行引擎配置
+# ====================================================
+react:
+  enabled: false
+
+  # 复杂度路由配置
+  router:
+    enabled: true
+    model: Qwen2-1.5B
+    timeout-ms: 100
+
+  # Action Space 配置
+  actions:
+    knowledge:
+      enabled: true
+      top-k: 5
+    database:
+      enabled: true
+    conversation:
+      enabled: true
+      window-size: 10
+
+  # 缓存配置
+  cache:
+    enabled: true
+    similarity-threshold:
+      direct-hit: 0.95
+      review: 0.85
+
+  # 死循环检测配置
+  loop-detection:
+    enabled: true
+    max-iterations: 5
+    fingerprint-match-count: 3
+
+  # 轻量级 LLM 配置（用于复杂度路由和事实提炼）
+  lightweight-llm:
+    model: Qwen2-1.5B
+    provider: local
+    base-url: http://localhost:8081/v1
+    api-key: dummy
+    timeout-ms: 10000

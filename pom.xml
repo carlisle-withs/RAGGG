@@ -129,6 +129,12 @@
             <version>8.5.7</version>
         </dependency>
 
+        <!-- HTTP Client for OCR API calls -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
         <!-- BGE Embeddings & Reranker - Commented out: not available on JitPack -->
         <!--
         <dependency>
