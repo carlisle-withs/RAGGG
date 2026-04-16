@@ -158,7 +158,185 @@ public class AppConfig {
     public Extraction getExtraction() { return extraction; }
     public void setExtraction(Extraction extraction) { this.extraction = extraction; }
 
+    // ===== P1: Reranker 配置 =====
+    private Reranker reranker = new Reranker();
+
+    // ===== P1: 检索策略配置 =====
+    private Retrieval retrieval = new Retrieval();
+
+    // ===== P1: OpenTelemetry 配置 =====
+    private Otel otel = new Otel();
+
+    // ===== P1: SWA 分块策略配置 =====
+    private SwaChunking swaChunking = new SwaChunking();
+
     private React react = new React();
+
+    // ===== P1: Reranker 配置类 =====
+    public static class Reranker {
+        private boolean enabled = true;
+        private String provider = "siliconflow";  // siliconflow / cohere / bi_encoder
+        private String model = "BAAI/bge-reranker-v2-m3";
+        private Siliconflow siliconflow = new Siliconflow();
+        private Cohere cohere = new Cohere();
+
+        public static class Siliconflow {
+            private boolean enabled = false;
+            private String apiKey = "";
+            private String model = "BAAI/bge-reranker-v2-m3";
+            private String baseUrl = "https://api.siliconflow.cn/v1";
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public String getApiKey() { return apiKey; }
+            public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+            public String getModel() { return model; }
+            public void setModel(String model) { this.model = model; }
+            public String getBaseUrl() { return baseUrl; }
+            public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        }
+
+        public static class Cohere {
+            private String apiKey = "";
+            private String model = "rerank-multilingual-v3.0";
+            public String getApiKey() { return apiKey; }
+            public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+            public String getModel() { return model; }
+            public void setModel(String model) { this.model = model; }
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
+        public String getModel() { return model; }
+        public void setModel(String model) { this.model = model; }
+        public Siliconflow getSiliconflow() { return siliconflow; }
+        public void setSiliconflow(Siliconflow siliconflow) { this.siliconflow = siliconflow; }
+        public Cohere getCohere() { return cohere; }
+        public void setCohere(Cohere cohere) { this.cohere = cohere; }
+    }
+
+    // ===== P1: 检索策略配置类 =====
+    public static class Retrieval {
+        private String strategy = "hybrid";  // hybrid / hierarchical
+        private Rerank rerank = new Rerank();
+        private int initialTopk = 20;
+        private int finalTopk = 5;
+        private Swaswa swa = new Swaswa();
+
+        public static class Rerank {
+            private boolean enabled = true;
+            private String provider = "siliconflow";
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public String getProvider() { return provider; }
+            public void setProvider(String provider) { this.provider = provider; }
+        }
+
+        public static class Swaswa {
+            private double mergingRatio = 0.5;
+            private int windowSize = 3;
+            public double getMergingRatio() { return mergingRatio; }
+            public void setMergingRatio(double mergingRatio) { this.mergingRatio = mergingRatio; }
+            public int getWindowSize() { return windowSize; }
+            public void setWindowSize(int windowSize) { this.windowSize = windowSize; }
+        }
+
+        public String getStrategy() { return strategy; }
+        public void setStrategy(String strategy) { this.strategy = strategy; }
+        public Rerank getRerank() { return rerank; }
+        public void setRerank(Rerank rerank) { this.rerank = rerank; }
+        public int getInitialTopk() { return initialTopk; }
+        public void setInitialTopk(int initialTopk) { this.initialTopk = initialTopk; }
+        public int getFinalTopk() { return finalTopk; }
+        public void setFinalTopk(int finalTopk) { this.finalTopk = finalTopk; }
+        public Swaswa getSwa() { return swa; }
+        public void setSwa(Swaswa swa) { this.swa = swa; }
+    }
+
+    // ===== P1: OpenTelemetry 配置类 =====
+    public static class Otel {
+        private boolean enabled = false;
+        private Service service = new Service();
+        private Exporter exporter = new Exporter();
+        private Metrics metrics = new Metrics();
+        private Resource resource = new Resource();
+        private Sampling sampling = new Sampling();
+
+        public static class Service {
+            private String name = "raggg";
+            private String version = "1.0.0";
+            public String getName() { return name; }
+            public void setName(String name) { this.name = name; }
+            public String getVersion() { return version; }
+            public void setVersion(String version) { this.version = version; }
+        }
+
+        public static class Exporter {
+            private String endpoint = "http://localhost:4317";
+            public String getEndpoint() { return endpoint; }
+            public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
+        }
+
+        public static class Metrics {
+            private int intervalSeconds = 30;
+            public int getIntervalSeconds() { return intervalSeconds; }
+            public void setIntervalSeconds(int intervalSeconds) { this.intervalSeconds = intervalSeconds; }
+        }
+
+        public static class Resource {
+            private String env = "dev";
+            public String getEnv() { return env; }
+            public void setEnv(String env) { this.env = env; }
+        }
+
+        public static class Sampling {
+            private double ratio = 1.0;
+            public double getRatio() { return ratio; }
+            public void setRatio(double ratio) { this.ratio = ratio; }
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Service getService() { return service; }
+        public void setService(Service service) { this.service = service; }
+        public Exporter getExporter() { return exporter; }
+        public void setExporter(Exporter exporter) { this.exporter = exporter; }
+        public Metrics getMetrics() { return metrics; }
+        public void setMetrics(Metrics metrics) { this.metrics = metrics; }
+        public Resource getResource() { return resource; }
+        public void setResource(Resource resource) { this.resource = resource; }
+        public Sampling getSampling() { return sampling; }
+        public void setSampling(Sampling sampling) { this.sampling = sampling; }
+    }
+
+    // ===== P1: SWA 分块策略配置类 =====
+    public static class SwaChunking {
+        private int leafChunkSize = 128;
+        private int leafChunkOverlap = 20;
+        private int parentChunkSize = 512;
+        private int windowSize = 3;
+        public int getLeafChunkSize() { return leafChunkSize; }
+        public void setLeafChunkSize(int leafChunkSize) { this.leafChunkSize = leafChunkSize; }
+        public int getLeafChunkOverlap() { return leafChunkOverlap; }
+        public void setLeafChunkOverlap(int leafChunkOverlap) { this.leafChunkOverlap = leafChunkOverlap; }
+        public int getParentChunkSize() { return parentChunkSize; }
+        public void setParentChunkSize(int parentChunkSize) { this.parentChunkSize = parentChunkSize; }
+        public int getWindowSize() { return windowSize; }
+        public void setWindowSize(int windowSize) { this.windowSize = windowSize; }
+    }
+
+    public Reranker getReranker() { return reranker; }
+    public void setReranker(Reranker reranker) { this.reranker = reranker; }
+
+    public Retrieval getRetrieval() { return retrieval; }
+    public void setRetrieval(Retrieval retrieval) { this.retrieval = retrieval; }
+
+    public Otel getOtel() { return otel; }
+    public void setOtel(Otel otel) { this.otel = otel; }
+
+    public SwaChunking getSwaChunking() { return swaChunking; }
+    public void setSwaChunking(SwaChunking swaChunking) { this.swaChunking = swaChunking; }
 
     public React getReact() { return react; }
     public void setReact(React react) { this.react = react; }

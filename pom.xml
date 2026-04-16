@@ -27,7 +27,21 @@
         <commons-compress.version>1.26.0</commons-compress.version>
         <elasticsearch.version>8.15.0</elasticsearch.version>
         <mysql.version>8.4.0</mysql.version>
+        <opentelemetry.version>1.36.0</opentelemetry.version>
+        <opentelemetry-instrumentation.version>2.2.0</opentelemetry-instrumentation.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Spring Boot -->
@@ -129,20 +143,11 @@
             <version>8.5.7</version>
         </dependency>
 
-        <!-- HTTP Client for OCR API calls -->
+        <!-- HTTP Client -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-
-        <!-- BGE Embeddings & Reranker - Commented out: not available on JitPack -->
-        <!--
-        <dependency>
-            <groupId>com.github.guangx19</groupId>
-            <artifactId>bge-m3</artifactId>
-            <version>${bge.version}</version>
-        </dependency>
-        -->
 
         <!-- YAML Config -->
         <dependency>
@@ -173,6 +178,20 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
+        <!-- TTL -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>transmittable-thread-local</artifactId>
+            <version>2.14.5</version>
+        </dependency>
+
+        <!-- Hutool -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.8.25</version>
+        </dependency>
+
         <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
@@ -190,6 +209,46 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>0.12.5</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- ===== P1: OpenTelemetry 可观测性 ===== -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-metrics</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-instrumentation-annotations</artifactId>
+            <version>${opentelemetry-instrumentation.version}</version>
+        </dependency>
+        <!-- Micrometer + Prometheus -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
         </dependency>
 
         <!-- Testing -->

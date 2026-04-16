@@ -14,6 +14,7 @@ public class ChunkStrategyFactory {
             case "fixed" -> new FixedChunkStrategy();
             case "structural" -> new StructuralChunkStrategy();
             case "semantic" -> new SemanticChunkStrategy();
+            case "swa" -> new HierarchicalChunkStrategy();  // P1: Sentence Window + Auto-Merging
             default -> new FixedChunkStrategy();
         };
 
@@ -71,6 +72,20 @@ public class ChunkStrategyFactory {
             }
             if (params.containsKey("minTokensPerChunk")) {
                 semantic.setMinTokensPerChunk((Integer) params.get("minTokensPerChunk"));
+            }
+        } else if (strategy instanceof HierarchicalChunkStrategy swa) {
+            // P1: SWA 分块策略参数
+            if (params.containsKey("leafChunkSize")) {
+                swa.setLeafChunkSize((Integer) params.get("leafChunkSize"));
+            }
+            if (params.containsKey("leafChunkOverlap")) {
+                swa.setLeafChunkOverlap((Integer) params.get("leafChunkOverlap"));
+            }
+            if (params.containsKey("parentChunkSize")) {
+                swa.setParentChunkSize((Integer) params.get("parentChunkSize"));
+            }
+            if (params.containsKey("windowSize")) {
+                swa.setWindowSize((Integer) params.get("windowSize"));
             }
         }
     }
