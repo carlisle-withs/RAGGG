@@ -46,6 +46,10 @@ public class TraceLogger {
         logger.warn("[{}] {}", traceId, message);
     }
 
+    public void warn(String message, Object... args) {
+        logger.warn("[{}] {}", traceId, args.length > 0 ? String.format(message, args) : message);
+    }
+
     public void error(String message) {
         logger.error("[{}] {}", traceId, message);
     }

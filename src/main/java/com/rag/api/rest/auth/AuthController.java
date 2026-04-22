@@ -113,4 +113,9 @@ public class AuthController {
 
         return ResponseEntity.ok(new AuthResponse(newToken, newRefreshToken, userDto, jwtUtils.getExpiration()));
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout() {
+        return ResponseEntity.ok().build();
+    }
 }

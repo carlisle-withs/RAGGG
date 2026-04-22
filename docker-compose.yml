@@ -1,25 +1,5 @@
 services:
-  # MySQL 8.0
-  mysql:
-    image: mysql:8.4.0
-    container_name: rag-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: rag_system
-    ports:
-      - "3307:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - rag-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Elasticsearch 8.15
+  # ============ Elasticsearch 8.15 ============
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: rag-elasticsearch
@@ -29,7 +9,7 @@ services:
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
     ports:
-      - "9201:9200"
+      - "29201:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
@@ -40,7 +20,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # etcd for Milvus
+  # ============ etcd for Milvus ============
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
     container_name: rag-etcd
@@ -65,6 +45,7 @@ services:
       timeout: 20s
       retries: 3
 
+  # ============ MinIO ============
   minio:
     image: minio/minio:RELEASE.2024-01-16T16-07-38Z
     container_name: rag-minio
@@ -73,8 +54,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9001:9000"
-      - "9002:9090"
+      - "29005:9000"
+      - "29006:9090"
     volumes:
       - minio_data:/minio_data
     networks:
@@ -86,7 +67,7 @@ services:
       timeout: 20s
       retries: 3
 
-  # Milvus (standalone)
+  # ============ Milvus 2.6.6 ============
   milvus:
     image: milvusdb/milvus:v2.6.6
     container_name: rag-milvus
@@ -102,8 +83,8 @@ services:
       MINIO_ACCESS_KEY_ID: minioadmin
       MINIO_SECRET_ACCESS_KEY: minioadmin
     ports:
-      - "19531:19530"
-      - "9091:9091"
+      - "29530:19530"
+      - "29191:9091"
     volumes:
       - milvus_data:/var/lib/milvus
     networks:
@@ -116,21 +97,7 @@ services:
       timeout: 20s
       retries: 3
 
-  # Attu - Milvus Web UI
-  attu:
-    image: zilliz/attu:v2.6.3
-    container_name: rag-attu
-    restart: unless-stopped
-    depends_on:
-      - milvus
-    environment:
-      MILVUS_URL: milvus:19530
-    ports:
-      - "3000:3000"
-    networks:
-      - rag-network
-
-  # Kafka with KRaft (no Zookeeper needed)
+  # ============ Kafka 3.7.0 (KRaft模式) ============
   kafka:
     image: apache/kafka:3.7.0
     container_name: rag-kafka
@@ -138,9 +105,9 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: controller,broker
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${SERVER_IP:-localhost}:9092,EXTERNAL://${SERVER_IP:-localhost}:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29292
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -151,25 +118,148 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     ports:
-      - "9092:9092"
-      - "29092:29092"
+      - "29292:9092"
+      - "29293:9093"
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
       - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
       interval: 30s
       timeout: 10s
       retries: 5
 
+  # ============ Redis 7 ============
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    ports:
+      - "26379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============ Prometheus 2.x ============
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: rag-prometheus
+    restart: unless-stopped
+    ports:
+      - "29090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============ Ollama 本地 Embedding 模型 ============
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # GPU 支持（如果机器有 NVIDIA GPU，取消下面的注释）
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============ Prometheus Pushgateway ============
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: rag-pushgateway
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    networks:
+      - rag-network
+
+  # ============ Attu Milvus Web UI ============
+  attu:
+    image: zilliz/attu:latest
+    container_name: rag-attu
+    restart: unless-stopped
+    ports:
+      - "20000:3000"
+    environment:
+      MILVUS_ENDPOINT: http://milvus:19530
+    networks:
+      - rag-network
+    depends_on:
+      milvus:
+        condition: service_healthy
+
+  # ============ Grafana 10.x ============
+  grafana:
+    image: grafana/grafana:10.4.11
+    container_name: rag-grafana
+    restart: unless-stopped
+    ports:
+      - "23000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/provisioning/dashboards/rag-pipeline.json:/var/lib/grafana/dashboards/rag-pipeline.json:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - rag-network
+    depends_on:
+      - prometheus
+
 volumes:
-  mysql_data:
   es_data:
   etcd_data:
   minio_data:
   milvus_data:
   kafka_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  ollama_data:
 
 networks:
   rag-network:

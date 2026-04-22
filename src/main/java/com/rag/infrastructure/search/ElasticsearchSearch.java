@@ -1,6 +1,7 @@
 package com.rag.infrastructure.search;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.IndexRequest;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -45,8 +46,8 @@ public class ElasticsearchSearch {
                 );
                 log.info("Created Elasticsearch index: {}", indexName);
             }
-        } catch (IOException e) {
-            log.error("Failed to initialize Elasticsearch index", e);
+        } catch (Exception e) {
+            log.warn("Elasticsearch index check/create deferred: {} — will retry on first use", e.getMessage());
         }
     }
 
@@ -56,6 +57,7 @@ public class ElasticsearchSearch {
             document.put("id", chunk.getId());
             document.put("content", chunk.getContent());
             document.put("document_id", chunk.getDocumentId());
+            document.put("kb_id", chunk.getKbId() != null ? chunk.getKbId() : "");
             document.put("metadata", chunk.getMetadata());
             document.put("created_at", chunk.getCreatedAt().toString());
 
@@ -71,15 +73,57 @@ public class ElasticsearchSearch {
         }
     }
 
+    /**
+     * 批量索引：将一个文档的所有 chunks 一次Bulk请求写入 ES。
+     */
+    public void indexBatch(List<Chunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) return;
+        try {
+            BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
+            for (Chunk chunk : chunks) {
+                Map<String, Object> document = new HashMap<>();
+                document.put("id", chunk.getId());
+                document.put("content", chunk.getContent());
+                document.put("document_id", chunk.getDocumentId());
+                document.put("kb_id", chunk.getKbId() != null ? chunk.getKbId() : "");
+                document.put("metadata", chunk.getMetadata());
+                document.put("created_at", chunk.getCreatedAt().toString());
+
+                bulkBuilder.operations(op -> op
+                        .index(idx -> idx
+                                .index(indexName)
+                                .id(chunk.getId())
+                                .document(document)
+                        )
+                );
+            }
+            var resp = client.bulk(bulkBuilder.build());
+            if (resp.errors()) {
+                log.error("Bulk ES index had errors: {}", resp.items().stream()
+                        .filter(i -> i.error() != null)
+                        .findFirst()
+                        .map(i -> i.error().reason())
+                        .orElse("unknown"));
+            }
+            log.debug("Bulk indexed {} chunks", chunks.size());
+        } catch (IOException e) {
+            log.error("Bulk index failed for {} chunks", chunks.size(), e);
+            throw new RuntimeException("Bulk index failed", e);
+        }
+    }
+
     public List<SearchResult> search(String query, String kbId, int topK) {
         try {
             SearchResponse<Map> response = client.search(s -> s
                             .index(indexName)
                             .query(q -> q
-                                    .multiMatch(mm -> mm
-                                            .query(query)
-                                            .fields("content")
-                                    )
+                                    .bool(b -> {
+                                        b.must(m -> m.multiMatch(mm -> mm.query(query).fields("content")));
+                                        if (kbId != null && !kbId.isEmpty()) {
+                                            b.filter(f -> f.term(t -> t.field("kb_id").value(kbId)));
+                                        }
+                                        return b;
+                                    })
                             )
                             .size(topK),
                     Map.class

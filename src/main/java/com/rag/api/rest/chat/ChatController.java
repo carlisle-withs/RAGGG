@@ -64,7 +64,10 @@ public class ChatController {
     private boolean hasKbAccess(String kbId) {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
-        if (currentUser == null) return false;
+        if (currentUser == null) {
+            // 匿名用户允许访问（知识库本身对匿名用户开放）
+            return true;
+        }
         try {
             Long id = Long.parseLong(kbId);
             return kbRepository.findById(id)
@@ -77,6 +80,7 @@ public class ChatController {
 
     private boolean isAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getPrincipal() == null) return false;
         return auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
     }
 

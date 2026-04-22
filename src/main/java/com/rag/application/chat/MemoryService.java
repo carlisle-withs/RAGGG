@@ -11,6 +11,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 public class MemoryService {
@@ -32,6 +35,7 @@ public class MemoryService {
     private final ConversationSummaryRepository summaryRepository;
     private final ChatModelService chatModel;
     private final ObjectMapper objectMapper;
+    private final Executor memorySummaryExecutor;
 
     @Value("${memory.window-size:10}")
     private int windowSize;
@@ -44,11 +48,13 @@ public class MemoryService {
 
     public MemoryService(StringRedisTemplate redisTemplate,
                          ConversationSummaryRepository summaryRepository,
-                         ChatModelService chatModel) {
+                         ChatModelService chatModel,
+                         @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
         this.redisTemplate = redisTemplate;
         this.summaryRepository = summaryRepository;
         this.chatModel = chatModel;
         this.objectMapper = new ObjectMapper();
+        this.memorySummaryExecutor = memorySummaryExecutor;
     }
 
     public record Message(String role, String content) {}
@@ -59,39 +65,81 @@ public class MemoryService {
         String messageKey = MESSAGE_KEY_PREFIX + conversationId;
         String summaryKey = SUMMARY_KEY_PREFIX + conversationId;
 
-        List<Message> recentMessages = new ArrayList<>();
-        String existingSummary = null;
+        try {
+            // 并行加载摘要和历史消息
+            CompletableFuture<String> summaryFuture = CompletableFuture.supplyAsync(
+                    () -> loadSummaryWithFallback(userId, conversationId, summaryKey),
+                    memorySummaryExecutor
+            );
+            CompletableFuture<List<Message>> messagesFuture = CompletableFuture.supplyAsync(
+                    () -> loadMessagesWithFallback(messageKey),
+                    memorySummaryExecutor
+            );
 
-        // 1. 获取已有摘要（从 Redis 或 MySQL）
-        String redisSummary = redisTemplate.opsForValue().get(summaryKey);
-        if (redisSummary != null) {
-            existingSummary = redisSummary;
-            log.debug("Found summary in Redis for conversation: {}", conversationId);
-        } else {
+            // 等待所有任务完成
+            CompletableFuture.allOf(summaryFuture, messagesFuture).join();
+
+            String existingSummary = summaryFuture.get();
+            List<Message> recentMessages = messagesFuture.get();
+
+            log.info("Context for conversation {}: summary={}, recentMessages={}",
+                    conversationId, existingSummary != null ? "exists" : "none", recentMessages.size());
+
+            return new ConversationContext(existingSummary, recentMessages);
+        } catch (Exception e) {
+            log.error("Failed to load context for conversation: {}", conversationId, e);
+            return new ConversationContext(null, new ArrayList<>());
+        }
+    }
+
+    /**
+     * 加载摘要，失败时返回 null
+     */
+    private String loadSummaryWithFallback(String userId, String conversationId, String summaryKey) {
+        try {
+            // 先从 Redis 获取
+            String redisSummary = redisTemplate.opsForValue().get(summaryKey);
+            if (redisSummary != null) {
+                log.debug("Found summary in Redis for conversation: {}", conversationId);
+                return redisSummary;
+            }
+
+            // Redis 没有，从 MySQL 获取
             Optional<ConversationSummary> dbSummary = summaryRepository.findByUserIdAndConversationId(userId, conversationId);
             if (dbSummary.isPresent()) {
-                existingSummary = dbSummary.get().getContent();
-                redisTemplate.opsForValue().set(summaryKey, existingSummary, Duration.ofDays(ttlDays));
+                String content = dbSummary.get().getContent();
+                redisTemplate.opsForValue().set(summaryKey, content, Duration.ofDays(ttlDays));
                 log.debug("Loaded summary from MySQL for conversation: {}", conversationId);
+                return content;
             }
+            return null;
+        } catch (Exception e) {
+            log.warn("加载摘要失败，将跳过摘要 - conversationId: {}, userId: {}", conversationId, userId, e);
+            return null;
         }
+    }
 
-        // 2. 获取最近消息（从 Redis）
-        List<String> messagesJson = redisTemplate.opsForList().range(messageKey, 0, -1);
-        if (messagesJson != null) {
-            for (String json : messagesJson) {
-                try {
-                    recentMessages.add(objectMapper.readValue(json, Message.class));
-                } catch (JsonProcessingException e) {
-                    log.warn("Failed to parse message JSON: {}", json);
+    /**
+     * 加载历史消息，失败时返回空列表
+     */
+    private List<Message> loadMessagesWithFallback(String messageKey) {
+        try {
+            List<String> messagesJson = redisTemplate.opsForList().range(messageKey, 0, -1);
+            List<Message> recentMessages = new ArrayList<>();
+            if (messagesJson != null) {
+                for (String json : messagesJson) {
+                    try {
+                        recentMessages.add(objectMapper.readValue(json, Message.class));
+                    } catch (JsonProcessingException e) {
+                        log.warn("Failed to parse message JSON: {}", json);
+                    }
                 }
             }
+            return recentMessages;
+        } catch (Exception e) {
+            log.error("Failed to load messages: {}", e);
+            return new ArrayList<>();
         }
-
-        log.info("Context for conversation {}: summary={}, recentMessages={}",
-                conversationId, existingSummary != null ? "exists" : "none", recentMessages.size());
-
-        return new ConversationContext(existingSummary, recentMessages);
     }
 
     /**
@@ -151,6 +199,15 @@ public class MemoryService {
     }
 
     private void generateSummary(String userId, String conversationId) {
+        // 异步执行摘要生成，不阻塞主流程
+        CompletableFuture.runAsync(() -> doGenerateSummary(userId, conversationId), memorySummaryExecutor)
+                .exceptionally(ex -> {
+                    log.error("异步生成摘要失败 - conversationId: {}, userId: {}", conversationId, userId, ex);
+                    return null;
+                });
+    }
+
+    private void doGenerateSummary(String userId, String conversationId) {
         String messageKey = MESSAGE_KEY_PREFIX + conversationId;
         String summaryKey = SUMMARY_KEY_PREFIX + conversationId;
 

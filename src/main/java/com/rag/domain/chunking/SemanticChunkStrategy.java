@@ -15,6 +15,7 @@ public class SemanticChunkStrategy implements ChunkStrategy {
     private int minTokensPerChunk = 30;
     private int minSentenceLength = 10;
     private int maxSentenceLength = 500;
+    private int overlapTokens = 200; // overlap 默认 200 tokens（约 40%），可配置
 
     // 优化4: 预编译正则表达式
     private static final Pattern CHINESE_PUNCTUATION = Pattern.compile("[。！？；]");
@@ -142,45 +143,60 @@ public class SemanticChunkStrategy implements ChunkStrategy {
         return filtered;
     }
 
+    private static final int MAX_CHUNK_CHARS = 10000; // 每个 chunk 上限 10000 字符
+
     private List<Sentence> splitLongSentence(Sentence sentence) {
         List<Sentence> parts = new ArrayList<>();
         String content = sentence.content;
-        int splitPoint = content.length() / 2;
 
-        // 尝试在逗号处分割
+        // 如果本身已经够小，直接返回
+        if (content.length() <= MAX_CHUNK_CHARS) {
+            parts.add(sentence);
+            return parts;
+        }
+
+        // 递归分割：先按逗号对半切，然后对每半继续检查
+        int splitPoint = content.length() / 2;
         int commaPos = content.indexOf('，', splitPoint);
         if (commaPos > splitPoint / 2) {
             splitPoint = commaPos + 1;
         }
 
-        parts.add(new Sentence(content.substring(0, splitPoint), sentence.start, sentence.start + splitPoint));
-        parts.add(new Sentence(content.substring(splitPoint), sentence.start + splitPoint, sentence.end));
+        Sentence left = new Sentence(content.substring(0, splitPoint), sentence.start, sentence.start + splitPoint);
+        Sentence right = new Sentence(content.substring(splitPoint), sentence.start + splitPoint, sentence.end);
 
+        // 递归处理每半，直到都小于上限
+        parts.addAll(splitLongSentence(left));
+        parts.addAll(splitLongSentence(right));
         return parts;
     }
 
     private List<List<Sentence>> groupByTopic(List<Sentence> sentences) {
-        List<List<Sentence>> groups = new ArrayList<>();
+        if (sentences.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 第一轮：按 token 限制切分 chunk（无 overlap）
+        List<List<Sentence>> rawChunks = new ArrayList<>();
         List<Sentence> currentGroup = new ArrayList<>();
         int currentTokens = 0;
 
         for (Sentence sentence : sentences) {
             int sentenceTokens = estimateTokenCount(sentence.content);
 
-            // 如果单个句子就超过限制，直接作为单独的chunk
+            // 单句超限，直接作为单独 chunk
             if (sentenceTokens > maxTokensPerChunk) {
                 if (!currentGroup.isEmpty()) {
-                    groups.add(new ArrayList<>(currentGroup));
+                    rawChunks.add(new ArrayList<>(currentGroup));
                     currentGroup.clear();
                     currentTokens = 0;
                 }
-                groups.add(new ArrayList<>(List.of(sentence)));
+                rawChunks.add(new ArrayList<>(List.of(sentence)));
                 continue;
             }
 
-            // 如果加上这个句子会超过限制，先保存当前group
             if (currentTokens + sentenceTokens > maxTokensPerChunk && !currentGroup.isEmpty()) {
-                groups.add(new ArrayList<>(currentGroup));
+                rawChunks.add(new ArrayList<>(currentGroup));
                 currentGroup.clear();
                 currentTokens = 0;
             }
@@ -189,51 +205,72 @@ public class SemanticChunkStrategy implements ChunkStrategy {
             currentTokens += sentenceTokens;
         }
 
-        // 处理最后一个group
         if (!currentGroup.isEmpty()) {
-            groups.add(currentGroup);
+            rawChunks.add(currentGroup);
         }
 
-        // 优化：合并所有太小的相邻group
-        int idx = 0;
-        while (idx < groups.size()) {
-            List<Sentence> thisGroup = groups.get(idx);
-            int thisTokens = estimateTokenCount(sentencesToContent(thisGroup));
+        // 第二轮：将 rawChunks 合并成带 overlap 的最终 chunks
+        List<List<Sentence>> finalChunks = new ArrayList<>();
 
-            if (thisTokens < minTokensPerChunk) {
-                boolean merged = false;
+        // 计算步长 = maxTokensPerChunk - overlapTokens
+        int stepTokens = Math.max(maxTokensPerChunk - overlapTokens, maxTokensPerChunk / 4);
 
-                // 尝试向后合并
-                if (idx < groups.size() - 1) {
-                    List<Sentence> nextGroup = groups.get(idx + 1);
-                    int nextTokens = estimateTokenCount(sentencesToContent(nextGroup));
-                    if (thisTokens + nextTokens <= maxTokensPerChunk * 2.0) {
-                        thisGroup.addAll(nextGroup);
-                        groups.remove(idx + 1);
-                        merged = true;
-                    }
-                }
+        int i = 0;
+        while (i < rawChunks.size()) {
+            List<Sentence> current = new ArrayList<>(rawChunks.get(i));
+            int currentSum = estimateTokenCount(sentencesToContent(current));
 
-                // 如果向后无法合并，尝试向前合并
-                if (!merged && idx > 0) {
-                    List<Sentence> prevGroup = groups.get(idx - 1);
-                    int prevTokens = estimateTokenCount(sentencesToContent(prevGroup));
-                    if (thisTokens + prevTokens <= maxTokensPerChunk * 2.0) {
-                        prevGroup.addAll(thisGroup);
-                        groups.remove(idx);
-                        idx--; // 退回上一个位置
-                        merged = true;
-                    }
-                }
-
-                if (merged) {
-                    continue; // 重新检查当前位置
+            // 向后尝试合并更多 chunk，直到接近 maxTokensPerChunk * 1.5
+            int j = i + 1;
+            while (j < rawChunks.size()) {
+                List<Sentence> next = rawChunks.get(j);
+                int nextSum = estimateTokenCount(sentencesToContent(next));
+                if (currentSum + nextSum <= maxTokensPerChunk * 1.5) {
+                    current.addAll(next);
+                    currentSum = estimateTokenCount(sentencesToContent(current));
+                    j++;
+                } else {
+                    break;
                 }
             }
-            idx++;
+
+            // 合并太小的 group（< minTokensPerChunk）
+            if (currentSum < minTokensPerChunk && finalChunks.size() > 0) {
+                // 向前合并：把当前 small group 追加到上一个 chunk
+                List<Sentence> prev = finalChunks.remove(finalChunks.size() - 1);
+                prev.addAll(current);
+                current = prev;
+            }
+
+            finalChunks.add(current);
+
+            // 计算下一个 chunk 的起始位置（滑动步长）
+            // 把当前 chunk 的最后 overlapTokens 的句子作为下一个 chunk 的开头
+            int overlapCount = 0;
+            int overlapSum = 0;
+            List<Sentence> reversed = new ArrayList<>(current);
+            java.util.Collections.reverse(reversed);
+            for (Sentence s : reversed) {
+                int sTokens = estimateTokenCount(s.content);
+                if (overlapSum + sTokens <= overlapTokens) {
+                    overlapCount++;
+                    overlapSum += sTokens;
+                } else {
+                    break;
+                }
+            }
+
+            // 跳过已覆盖的 sentences，使用滑动步长定位
+            int sentencesToSkip = Math.max(1, current.size() - overlapCount);
+            i += sentencesToSkip;
+
+            // 如果步长太小导致原地踏步，强制前进一步
+            if (i <= rawChunks.size() - 1 && sentencesToSkip <= 1) {
+                i++;
+            }
         }
 
-        return groups;
+        return finalChunks;
     }
 
     private String sentencesToContent(List<Sentence> sentences) {
@@ -262,6 +299,10 @@ public class SemanticChunkStrategy implements ChunkStrategy {
 
     public void setMinTokensPerChunk(int minTokensPerChunk) {
         this.minTokensPerChunk = minTokensPerChunk;
+    }
+
+    public void setOverlapTokens(int overlapTokens) {
+        this.overlapTokens = overlapTokens;
     }
 
     private Chunk createChunk(String content, String documentId, String kbId, int chunkIndex, List<Sentence> sentences) {

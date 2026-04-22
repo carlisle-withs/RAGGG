@@ -9,7 +9,7 @@ app:
   port: 8080
 
 kafka:
-  bootstrap-servers: ${server.ip}:9092
+  bootstrap-servers: ${server.ip}:29292
   consumer:
     group-id: rag-system
   topics:
@@ -18,13 +18,20 @@ kafka:
     document-indexed: document-indexed
 
 milvus:
-  uri: http://${server.ip}:19530
+  uri: http://${server.ip}:29530
   collection: rag_chunks
 
 elasticsearch:
-  host: ${server.ip}
-  port: 9201
+  host: localhost
+  port: 29201
   index: rag_documents
+
+# Redis (用于会话 Memory 缓存)
+redis:
+  host: localhost
+  port: 26379
+  database: 0
+  ttl-days: 7
 
 mysql:
   host: ${server.ip}
@@ -48,6 +55,9 @@ embedding:
 
 reranker:
   model: BAAI/bge-reranker-v2-m3
+  base-url: https://api.siliconflow.cn/v1
+  api-key: YOUR_SILICONFLOW_API_KEY_HERE
+  enabled: true
 
 memory:
   window-size: 10
@@ -59,7 +69,7 @@ chunking:
   chunk-overlap: 50
 
 minio:
-  endpoint: http://${server.ip}:9001
+  endpoint: http://${server.ip}:29005
   access-key: minioadmin
   secret-key: minioadmin
   bucket: rag-documents
@@ -69,7 +79,7 @@ minio:
 # ====================================================
 extraction:
   enabled: false
-  
+
   image:
     enabled: true
     min-size: 50
@@ -79,7 +89,7 @@ extraction:
       api-secret: YOUR_ALIYUN_OCR_API_SECRET_HERE
       region: cn-shanghai
       language: ZH-CN
-  
+
   table:
     enabled: true
     parser:
@@ -88,7 +98,7 @@ extraction:
       api-secret: YOUR_ALIYUN_TABLE_API_SECRET_HERE
       region: cn-shanghai
       output-format: html
-  
+
   processing:
     parallel: true
     max-concurrency: 4

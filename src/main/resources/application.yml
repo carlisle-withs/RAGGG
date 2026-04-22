@@ -3,12 +3,15 @@ spring:
     name: RAGDemo
   config:
     import: optional:file:./config.yaml
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
   servlet:
     multipart:
       max-file-size: 100MB
       max-request-size: 100MB
   kafka:
-    bootstrap-servers: ${kafka.bootstrap-servers}
+    bootstrap-servers: ${kafka.bootstrap-servers:localhost:29292}
     consumer:
       group-id: ${kafka.consumer.group-id:rag-system}
       max-poll-records: 1
@@ -37,17 +40,17 @@ spring:
         format_sql: true
 
 server:
-  port: ${app.port:8080}
+  port: ${app.port:8081}
   address: ${app.host:0.0.0.0}
 
 # Custom config
 milvus:
-  uri: ${milvus.uri:http://localhost:19530}
+  uri: ${milvus.uri:http://localhost:29530}
   collection: ${milvus.collection:rag_chunks}
 
 elasticsearch:
   host: ${elasticsearch.host:localhost}
-  port: ${elasticsearch.port:9200}
+  port: ${elasticsearch.port:29201}
   index: ${elasticsearch.index:rag_documents}
 
 llm:
@@ -58,11 +61,24 @@ llm:
   group-id: ""
 
 embedding:
-  model: ${embedding.model:BAAI/bge-m3}
-  dimension: ${embedding.dimension:1024}
+  provider: siliconflow                           # ollama | siliconflow
+  model: BAAI/bge-m3                             # SiliconFlow 云端模型
+  dimension: 1024                                # bge-m3 为 1024 维
+  base-url: https://api.siliconflow.cn/v1         # SiliconFlow API 地址
+  api-key: ${embedding.api-key:}                  # SiliconFlow API Key
+  batch-size: 8
 
 reranker:
   model: ${reranker.model:BAAI/bge-reranker-v2-m3}
+  base-url: ${reranker.base-url:https://api.siliconflow.cn/v1}
+  api-key: ${reranker.api-key:}
+  enabled: ${reranker.enabled:true}
+
+retrieval:
+  rerank:
+    enabled: ${rerank.enabled:true}
+    provider: ${rerank.provider:siliconflow}
+    final-topk: 5
 
 memory:
   window-size: ${memory.window-size:10}
@@ -79,7 +95,7 @@ kafka-topics:
   document-indexed: ${kafka.topics.document-indexed:document-indexed}
 
 minio:
-  endpoint: ${minio.endpoint:http://localhost:9001}
+  endpoint: ${minio.endpoint:http://localhost:29005}
   access-key: ${minio.access-key:minioadmin}
   secret-key: ${minio.secret-key:minioadmin}
   bucket: ${minio.bucket:rag-documents}
@@ -88,3 +104,37 @@ logging:
   level:
     root: INFO
     com.rag: DEBUG
+
+# ===== Actuator + Prometheus Metrics =====
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        "[*]": true
+      percentiles:
+        "[*]": [0.5, 0.95, 0.99]
+
+# ===== Knife4j Swagger UI 配置 =====
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+  openapi:
+    title: RAGGG API 文档
+    description: RAG 智能问答系统完整接口
+    version: 1.0.0
+    contact:
+      name: RAGGG Team
+      email: support@raggg.com

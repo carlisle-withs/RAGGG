@@ -9,9 +9,12 @@ import com.rag.application.retrieval.RetrievalApplicationService;
 import com.rag.infrastructure.llm.ChatModelService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,6 +29,7 @@ public class ChatApplicationService {
     private final QueryRewriter queryRewriter;
     private final ComplexityRouter complexityRouter;
     private final ReActEngine reActEngine;
+    private final Executor memorySummaryExecutor;
 
     public ChatApplicationService(ChatModelService chatModel,
                                   RetrievalApplicationService retrievalService,
@@ -33,7 +37,8 @@ public class ChatApplicationService {
                                   IntentClassifier intentClassifier,
                                   QueryRewriter queryRewriter,
                                   ComplexityRouter complexityRouter,
-                                  ReActEngine reActEngine) {
+                                  ReActEngine reActEngine,
+                                  @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
         this.chatModel = chatModel;
         this.retrievalService = retrievalService;
         this.memoryService = memoryService;
@@ -41,6 +46,7 @@ public class ChatApplicationService {
         this.queryRewriter = queryRewriter;
         this.complexityRouter = complexityRouter;
         this.reActEngine = reActEngine;
+        this.memorySummaryExecutor = memorySummaryExecutor;
     }
 
     /**
@@ -145,7 +151,7 @@ public class ChatApplicationService {
 
         // 2. 使用混合检索
         List<RetrievalApplicationService.RetrievalResult> results =
-                retrievalService.hybridSearch(expandedQuery, kbId, 5);
+                retrievalService.hybridSearch(expandedQuery, kbId, 5, true);
 
         log.info("Retrieved {} sources", results.size());
         return results;

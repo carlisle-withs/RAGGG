@@ -1,7 +1,6 @@
 package com.rag.infrastructure.mq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rag.config.AppConfig;
 import com.rag.domain.event.DocumentEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +45,6 @@ public class DocumentEventProducer {
                     });
         } catch (Exception e) {
             log.error("Failed to serialize event", e);
-            throw new RuntimeException("Send failed", e);
         }
     }
 }
