@@ -72,6 +72,9 @@ public class ChunkStrategyFactory {
             if (params.containsKey("minTokensPerChunk")) {
                 semantic.setMinTokensPerChunk((Integer) params.get("minTokensPerChunk"));
             }
+            if (params.containsKey("overlapTokens")) {
+                semantic.setOverlapTokens((Integer) params.get("overlapTokens"));
+            }
         }
     }
 }

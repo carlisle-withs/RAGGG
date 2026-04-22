@@ -42,7 +42,7 @@ public class DocumentController {
 
         if (isAdmin()) {
             documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"));
-        } else {
+        } else if (currentUser != null) {
             List<Long> userKbIds = kbRepository.findByCreatedBy(currentUser.getUsername())
                     .stream().map(kb -> kb.getId()).collect(Collectors.toList());
 
@@ -50,6 +50,9 @@ public class DocumentController {
                     .stream()
                     .filter(doc -> userKbIds.contains(doc.getKbId()))
                     .collect(Collectors.toList());
+        } else {
+            // 游客：返回空列表或全部（按 kbId 过滤）
+            documents = documentRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"));
         }
 
         if (kbId != null) {
@@ -208,6 +211,7 @@ public class DocumentController {
     private boolean hasKbAccess(Long kbId) {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
+        if (currentUser == null) return true; // 游客允许访问
         return kbRepository.findById(kbId)
                 .map(kb -> kb.getCreatedBy() != null && kb.getCreatedBy().equals(currentUser.getUsername()))
                 .orElse(false);
@@ -215,11 +219,14 @@ public class DocumentController {
 
     private boolean isAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getPrincipal() == null) return false;
         return auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
     }
 
     private User getCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return (User) auth.getPrincipal();
+        if (auth == null || auth.getPrincipal() == null) return null;
+        if (auth.getPrincipal() instanceof User) return (User) auth.getPrincipal();
+        return null;
     }
 }

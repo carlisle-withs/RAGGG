@@ -28,7 +28,7 @@ public class IntelligentChunkingStrategy implements ChunkStrategy {
     private static final StrategyConfig CODE_CONFIG = new StrategyConfig("fixed", 300, 50, 0);
     private static final StrategyConfig JSON_CONFIG = new StrategyConfig("fixed", 500, 0, 0);
     private static final StrategyConfig CSV_CONFIG = new StrategyConfig("fixed", 400, 0, 0);
-    private static final StrategyConfig PLAIN_TEXT_CONFIG = new StrategyConfig("semantic", 200, 512, 50);
+    private static final StrategyConfig PLAIN_TEXT_CONFIG = new StrategyConfig("semantic", 512, 512, 50);
 
     public IntelligentChunkingStrategy(DocumentTypeDetector typeDetector, ChunkStrategyFactory strategyFactory) {
         this.typeDetector = typeDetector;
@@ -123,6 +123,8 @@ public class IntelligentChunkingStrategy implements ChunkStrategy {
             params.put("minParagraphLength", minParagraphLength);
             params.put("maxTokensPerChunk", chunkSize / 4);
             params.put("minTokensPerChunk", chunkSize / 10);
+            // overlapTokens = maxTokensPerChunk * 0.2 = chunkSize/20，约 25 tokens（语义分块的 overlap）
+            params.put("overlapTokens", chunkSize / 20);
             return params;
         }
     }

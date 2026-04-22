@@ -144,6 +144,8 @@ public class IndexService {
                 }
                 while (parser.nextToken() != JsonToken.END_ARRAY) {
                     Chunk chunk = objectMapper.readValue(parser, ChunkDTO.class).toChunk();
+                    // 修复: ChunkDTO 不含 kbId，从 DocumentEvent 补上
+                    chunk.setKbId(docKbId.toString());
                     // 跳过空内容 chunk，避免 SiliconFlow 批量 embedding 报 20015（不接受空字符串）
                     if (chunk.getContent() == null || chunk.getContent().isBlank()) {
                         continue;
