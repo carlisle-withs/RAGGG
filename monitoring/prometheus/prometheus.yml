@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Spring Boot 后端指标（通过 host.docker.internal 访问宿主机上的 8081）
+  - job_name: 'rag-backend'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+        labels:
+          app: 'rag-backend'
+
+  # Prometheus Pushgateway（接收压力测试脚本推送的指标）
+  - job_name: 'pushgateway'
+    static_configs:
+      - targets: ['host.docker.internal:19991']
+        labels:
+          app: 'pushgateway'
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -5,10 +5,13 @@ import com.rag.infrastructure.search.ElasticsearchSearch;
 import com.rag.infrastructure.vector.MilvusVectorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -34,13 +37,19 @@ public class HybridRetrievalService {
     private final MilvusVectorStore milvusVectorStore;
     private final ElasticsearchSearch elasticsearchSearch;
     private final EmbeddingService embeddingService;
+    private final Executor retrievalExecutor;
+    private final int candidatePoolSize;
 
     public HybridRetrievalService(MilvusVectorStore milvusVectorStore,
                                   ElasticsearchSearch elasticsearchSearch,
-                                  EmbeddingService embeddingService) {
+                                  EmbeddingService embeddingService,
+                                  @Qualifier("retrievalThreadPoolExecutor") Executor retrievalExecutor,
+                                  @Value("${retrieval.candidate-pool-size:20}") int candidatePoolSize) {
         this.milvusVectorStore = milvusVectorStore;
         this.elasticsearchSearch = elasticsearchSearch;
         this.embeddingService = embeddingService;
+        this.retrievalExecutor = retrievalExecutor;
+        this.candidatePoolSize = candidatePoolSize;
     }
 
     /**
@@ -63,19 +72,19 @@ public class HybridRetrievalService {
                         log.info("Milvus vector search starting...");
                         float[] queryEmbedding = embeddingService.embed(query);
                         List<MilvusVectorStore.SearchResult> results =
-                                milvusVectorStore.search(queryEmbedding, kbId, topK * 2);
+                                milvusVectorStore.search(queryEmbedding, kbId, candidatePoolSize);
                         log.info("Milvus returned {} results", results.size());
                         return results;
-                    });
+                    }, retrievalExecutor);
 
             CompletableFuture<List<ElasticsearchSearch.SearchResult>> esFuture =
                     CompletableFuture.supplyAsync(() -> {
                         log.info("Elasticsearch text search starting...");
                         List<ElasticsearchSearch.SearchResult> results =
-                                elasticsearchSearch.search(query, kbId, topK * 2);
+                                elasticsearchSearch.search(query, kbId, candidatePoolSize);
                         log.info("ES returned {} results", results.size());
                         return results;
-                    });
+                    }, retrievalExecutor);
 
             // 等待两路完成
             CompletableFuture.allOf(milvusFuture, esFuture).join();
@@ -138,10 +147,9 @@ public class HybridRetrievalService {
             doc.addScore("es", rrfScore, textScore);
         }
 
-        // 按 RRF 总分排序
+        // 按 RRF 总分排序，返回全部（由调用方限制）
         return fusionMap.values().stream()
                 .sorted(Comparator.comparingDouble(FusionDoc::getRrfScore).reversed())
-                .limit(topK)
                 .map(doc -> new RetrievalResult(
                         doc.chunkId,
                         doc.content,
