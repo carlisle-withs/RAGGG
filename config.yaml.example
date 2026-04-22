@@ -35,7 +35,7 @@ redis:
 
 mysql:
   host: ${server.ip}
-  port: 3307
+  port: 23306
   database: rag_system
   username: root
   password: YOUR_PASSWORD_HERE

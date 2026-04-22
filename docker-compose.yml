@@ -150,6 +150,31 @@ services:
       timeout: 5s
       retries: 3
 
+  # ============ MySQL 8.0 ============
+  mysql:
+    image: mysql:8.0
+    container_name: rag-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: RagSystem@2024
+      MYSQL_DATABASE: rag_system
+    ports:
+      - "23306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - rag-network
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pRagSystem@2024"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ============ Prometheus 2.x ============
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -257,6 +282,7 @@ volumes:
   milvus_data:
   kafka_data:
   redis_data:
+  mysql_data:
   prometheus_data:
   grafana_data:
   ollama_data:
