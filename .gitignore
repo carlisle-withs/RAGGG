@@ -68,3 +68,9 @@ stress-test/*.log
 stress-test/test-data/
 stress-test/data/
 stress-test/real-docs/
+
+# Backup and temp files
+pom_backup.xml
+
+# Accidental directories
+frontend/@/
