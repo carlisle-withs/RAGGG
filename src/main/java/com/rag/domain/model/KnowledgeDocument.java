@@ -26,7 +26,7 @@ public class KnowledgeDocument {
     @Column(name = "file_url", nullable = false, length = 1024)
     private String fileUrl;
 
-    @Column(name = "file_type", nullable = false, length = 32)
+    @Column(name = "file_type", nullable = false, length = 128)
     private String fileType;
 
     @Column(name = "file_size")

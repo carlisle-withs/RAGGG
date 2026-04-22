@@ -17,6 +17,7 @@ public class AppConfig {
     private Chunking chunking = new Chunking();
     private Minio minio = new Minio();
     private Extraction extraction = new Extraction();
+    private Reranker reranker = new Reranker();
 
     public static class App {
         private String host = "0.0.0.0";
@@ -99,10 +100,13 @@ public class AppConfig {
     }
 
     public static class Embedding {
+        private String provider = "siliconflow";  // "ollama" 或 "siliconflow"
         private String model = "BAAI/bge-m3";
         private int dimension = 1024;
         private String baseUrl = "https://api.siliconflow.cn/v1";
         private String apiKey = "";
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
         public String getModel() { return model; }
         public void setModel(String model) { this.model = model; }
         public int getDimension() { return dimension; }
@@ -157,11 +161,29 @@ public class AppConfig {
     public void setMinio(Minio minio) { this.minio = minio; }
     public Extraction getExtraction() { return extraction; }
     public void setExtraction(Extraction extraction) { this.extraction = extraction; }
+    public Reranker getReranker() { return reranker; }
+    public void setReranker(Reranker reranker) { this.reranker = reranker; }
 
     private React react = new React();
 
     public React getReact() { return react; }
     public void setReact(React react) { this.react = react; }
+
+    public static class Reranker {
+        private boolean enabled = true;
+        private String model = "BAAI/bge-reranker-v2-m3";
+        private String baseUrl = "https://api.siliconflow.cn/v1";
+        private String apiKey = "";
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getModel() { return model; }
+        public void setModel(String model) { this.model = model; }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    }
 
     public static class Extraction {
         private boolean enabled = false;

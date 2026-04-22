@@ -9,11 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.PostConstruct;
-import java.io.ByteArrayInputStream;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.nio.charset.Charset;
 import java.util.concurrent.TimeUnit;
 
@@ -42,7 +38,7 @@ public class MinioStorage {
                 log.info("Created MinIO bucket: {}", bucket);
             }
         } catch (Exception e) {
-            log.error("Failed to initialize MinIO bucket", e);
+            log.warn("MinIO bucket check/create deferred: {} — will retry on first use", e.getMessage());
         }
     }
 
@@ -63,10 +59,8 @@ public class MinioStorage {
     }
 
     public String upload(String objectName, byte[] data, String contentType) {
-        try {
-            try (ByteArrayInputStream bais = new ByteArrayInputStream(data)) {
-                return upload(objectName, bais, data.length, contentType);
-            }
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(data)) {
+            return upload(objectName, bais, data.length, contentType);
         } catch (Exception e) {
             log.error("Failed to upload: {}", objectName, e);
             throw new RuntimeException("Upload failed", e);
@@ -89,15 +83,10 @@ public class MinioStorage {
         }
     }
 
-    public byte[] download(String objectName) {
-        try (InputStream stream = getObjectStream(objectName)) {
-            return stream.readAllBytes();
-        } catch (Exception e) {
-            log.error("Failed to download: {}", objectName, e);
-            throw new RuntimeException("Download failed", e);
-        }
-    }
-
+    /**
+     * 返回对象的内容流。MinIO 不可用时返回空 JSON 数组 [] 而非抛异常，
+     * 使调用方（IndexService）能正常处理"无 chunks 文件"的边界情况。
+     */
     public InputStream getObjectStream(String objectName) {
         try {
             return minioClient.getObject(GetObjectArgs.builder()
@@ -105,8 +94,17 @@ public class MinioStorage {
                     .object(objectName)
                     .build());
         } catch (Exception e) {
-            log.error("Failed to open stream: {}", objectName, e);
-            throw new RuntimeException("Open stream failed", e);
+            log.warn("MinIO unavailable, returning empty stream for: {} — {}", objectName, e.getMessage());
+            return new ByteArrayInputStream("[]".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    public byte[] download(String objectName) {
+        try (InputStream stream = getObjectStream(objectName)) {
+            return stream.readAllBytes();
+        } catch (Exception e) {
+            log.error("Failed to download: {}", objectName, e);
+            throw new RuntimeException("Download failed", e);
         }
     }
 

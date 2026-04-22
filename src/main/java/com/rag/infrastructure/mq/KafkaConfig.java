@@ -1,6 +1,7 @@
 package com.rag.infrastructure.mq;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -9,6 +10,7 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaConfig {
 
     @Bean
+    @ConditionalOnProperty(name = "spring.kafka.enabled", havingValue = "true", matchIfMissing = false)
     public NewTopic documentUploadTopic() {
         return TopicBuilder.name(KafkaTopics.DOCUMENT_UPLOAD)
                 .partitions(3)

@@ -6,6 +6,8 @@ import io.milvus.v2.client.MilvusClientV2;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.function.Supplier;
+
 @Configuration
 public class MilvusConfig {
 
@@ -15,11 +17,13 @@ public class MilvusConfig {
         this.appConfig = appConfig;
     }
 
-    @Bean(destroyMethod = "close")
-    public MilvusClientV2 milvusClient() {
-        ConnectConfig.ConnectConfigBuilder builder = ConnectConfig.builder()
-                .uri(appConfig.getMilvus().getUri());
-
-        return new MilvusClientV2(builder.build());
+    @Bean
+    public Supplier<MilvusClientV2> milvusClientSupplier() {
+        return () -> {
+            ConnectConfig.ConnectConfigBuilder builder = ConnectConfig.builder()
+                    .uri(appConfig.getMilvus().getUri());
+            MilvusClientV2 client = new MilvusClientV2(builder.build());
+            return client;
+        };
     }
 }
