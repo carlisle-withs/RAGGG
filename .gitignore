@@ -1,6 +1,20 @@
 # Build output
 target/
 
+# Eclipse project files
+.classpath
+.factorypath
+.project
+.settings/
+
+# TypeScript build cache
+*.tsbuildinfo
+frontend/tsconfig.app.tsbuildinfo
+frontend/tsconfig.node.tsbuildinfo
+
+# Vite build output
+frontend/dist/
+
 # Maven wrapper (downloaded)
 .mvn/wrapper/maven-wrapper.jar
 
@@ -47,3 +61,10 @@ frontend/package-lock.json
 
 # Project specific
 SPEC.md
+
+# Benchmark logs and cache
+stress-test/__pycache__/
+stress-test/*.log
+stress-test/test-data/
+stress-test/data/
+stress-test/real-docs/
