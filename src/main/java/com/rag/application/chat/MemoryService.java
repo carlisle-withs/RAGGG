@@ -3,7 +3,9 @@ package com.rag.application.chat;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.domain.model.ConversationSummary;
+import com.rag.domain.model.Message;
 import com.rag.domain.repository.ConversationSummaryRepository;
+import com.rag.domain.repository.MessageRepository;
 import com.rag.infrastructure.llm.ChatModelService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -33,6 +35,7 @@ public class MemoryService {
 
     private final StringRedisTemplate redisTemplate;
     private final ConversationSummaryRepository summaryRepository;
+    private final MessageRepository messageRepository;
     private final ChatModelService chatModel;
     private final ObjectMapper objectMapper;
     private final Executor memorySummaryExecutor;
@@ -48,10 +51,12 @@ public class MemoryService {
 
     public MemoryService(StringRedisTemplate redisTemplate,
                          ConversationSummaryRepository summaryRepository,
+                         MessageRepository messageRepository,
                          ChatModelService chatModel,
                          @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
         this.redisTemplate = redisTemplate;
         this.summaryRepository = summaryRepository;
+        this.messageRepository = messageRepository;
         this.chatModel = chatModel;
         this.objectMapper = new ObjectMapper();
         this.memorySummaryExecutor = memorySummaryExecutor;
@@ -178,16 +183,21 @@ public class MemoryService {
         String summaryKey = SUMMARY_KEY_PREFIX + conversationId;
 
         try {
+            // Redis 热存储
             Message message = new Message(role, content);
             String json = objectMapper.writeValueAsString(message);
-
-            // 添加到 Redis List
             redisTemplate.opsForList().rightPush(messageKey, json);
-
-            // 设置 TTL
             redisTemplate.expire(messageKey, Duration.ofDays(ttlDays));
 
-            // 检查是否需要生成摘要
+            // MySQL 持久化存储
+            try {
+                com.rag.domain.model.Message msg = new com.rag.domain.model.Message(
+                        conversationId, userId, role, content);
+                messageRepository.save(msg);
+            } catch (Exception e) {
+                log.warn("Failed to persist message to MySQL: {}", e.getMessage());
+            }
+
             Long messageCount = redisTemplate.opsForList().size(messageKey);
             if (messageCount != null && messageCount >= summaryThreshold) {
                 generateSummary(userId, conversationId);

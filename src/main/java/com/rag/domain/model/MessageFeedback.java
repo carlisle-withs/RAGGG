@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 public class MessageFeedback {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(name = "message_id", nullable = false)

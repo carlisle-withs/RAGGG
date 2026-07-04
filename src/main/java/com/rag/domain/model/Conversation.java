@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 public class Conversation {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(name = "conversation_id", nullable = false, length = 64)

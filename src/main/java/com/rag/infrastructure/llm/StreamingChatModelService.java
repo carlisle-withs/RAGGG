@@ -21,22 +21,20 @@ public class StreamingChatModelService {
     private static final Logger log = LoggerFactory.getLogger(StreamingChatModelService.class);
 
     private final String apiKey;
-    private final String groupId;
     private final String model;
+    private final String apiUrl;
+    private final String authHeader;
     private final ObjectMapper objectMapper;
     private final Executor executor = Executors.newSingleThreadExecutor();
-
-    private static final String API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2";
-    private static final String AUTH_HEADER = "Bearer sk-cp-GZiEUROmyANxyr0sL20NVZeCQHUoivuZo0GXEAA6B55Ob6C5aCxXL2jKz2ELKsLXkdCJN-P8ANj-681kzpmeyL1Vj7EEbLfIlLgBcYmJlG-i53b94nUfpdY";
-    private static final String GROUP_ID = "2034153629136458495";
 
     public StreamingChatModelService(AppConfig appConfig) {
         AppConfig.Llm llmConfig = appConfig.getLlm();
         this.model = llmConfig.getModel();
         this.apiKey = llmConfig.getApiKey();
-        this.groupId = llmConfig.getGroupId();
+        this.apiUrl = llmConfig.getBaseUrl() + "/chat/completions";
+        this.authHeader = "Bearer " + llmConfig.getApiKey();
         this.objectMapper = new ObjectMapper();
-        log.info("StreamingChatModel initialized: model={}, groupId={}", model, groupId);
+        log.info("StreamingChatModel initialized: model={}, baseUrl={}", model, llmConfig.getBaseUrl());
     }
 
     public CompletableFuture<String> stream(String prompt, StreamingCallback callback) {
@@ -48,19 +46,18 @@ public class StreamingChatModelService {
                 // 将 JSON body 写入临时文件（避免命令行引号问题）
                 String jsonBody = "{\"model\":\"" + model + "\",\"stream\":true," +
                         "\"messages\":[{\"role\":\"user\",\"content\":\"" + escapeJson(prompt) + "\"}]}";
-                tmpFile = Files.createTempFile("minimax_req", ".json");
+                tmpFile = Files.createTempFile("llm_req", ".json");
                 Files.writeString(tmpFile, jsonBody, StandardCharsets.UTF_8);
 
-                log.info("Calling MiniMax API via curl, prompt len={}", prompt.length());
+                log.info("Calling LLM API via curl, prompt len={}", prompt.length());
 
-                // 使用 curl 调用 MiniMax API
+                // 使用 curl 调用 LLM API (OpenAI 兼容格式)
                 ProcessBuilder pb = new ProcessBuilder(
                     "curl", "-s", "-N",
-                    API_URL,
+                    apiUrl,
                     "-X", "POST",
                     "-H", "Content-Type: application/json",
-                    "-H", "Authorization: " + AUTH_HEADER,
-                    "-H", "group_id: " + GROUP_ID,
+                    "-H", "Authorization: " + authHeader,
                     "-d", "@" + tmpFile.toString(),
                     "--max-time", "120"
                 );

@@ -6,13 +6,17 @@ import com.rag.application.chat.react.ReActEngine;
 import com.rag.application.chat.react.model.ReActResult;
 import com.rag.application.chat.react.model.TaskComplexity;
 import com.rag.application.retrieval.RetrievalApplicationService;
+import com.rag.domain.model.Conversation;
+import com.rag.domain.repository.ConversationRepository;
 import com.rag.infrastructure.llm.ChatModelService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
@@ -29,6 +33,7 @@ public class ChatApplicationService {
     private final QueryRewriter queryRewriter;
     private final ComplexityRouter complexityRouter;
     private final ReActEngine reActEngine;
+    private final ConversationRepository conversationRepository;
     private final Executor memorySummaryExecutor;
 
     public ChatApplicationService(ChatModelService chatModel,
@@ -38,6 +43,7 @@ public class ChatApplicationService {
                                   QueryRewriter queryRewriter,
                                   ComplexityRouter complexityRouter,
                                   ReActEngine reActEngine,
+                                  ConversationRepository conversationRepository,
                                   @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
         this.chatModel = chatModel;
         this.retrievalService = retrievalService;
@@ -46,6 +52,7 @@ public class ChatApplicationService {
         this.queryRewriter = queryRewriter;
         this.complexityRouter = complexityRouter;
         this.reActEngine = reActEngine;
+        this.conversationRepository = conversationRepository;
         this.memorySummaryExecutor = memorySummaryExecutor;
     }
 
@@ -100,6 +107,17 @@ public class ChatApplicationService {
             if (conversationId != null && userId != null) {
                 memoryService.addMessage(userId, conversationId, "user", message);
                 memoryService.addMessage(userId, conversationId, "assistant", response);
+
+                String title = message.length() > 30 ? message.substring(0, 30) : message;
+                Optional<Conversation> existing = conversationRepository.findByConversationId(conversationId);
+                if (existing.isPresent()) {
+                    Conversation conv = existing.get();
+                    conv.setLastTime(LocalDateTime.now());
+                    conversationRepository.save(conv);
+                } else {
+                    Conversation conv = new Conversation(conversationId, userId, title);
+                    conversationRepository.save(conv);
+                }
             }
 
             log.info("=== Chat Process End ===");

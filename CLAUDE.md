@@ -23,6 +23,27 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--spring.config.additional-loca
 
 # Docker infrastructure (from project root)
 docker-compose up -d
+
+# === 自动化测试 Agent ===
+# 运行完整功能测试
+./test-agent.sh
+
+# 快速测试（跳过 LLM 调用）
+./test-agent.sh --quick
+
+# 详细输出
+./test-agent.sh --verbose
+
+# === 开发守护进程 (文件变更 → 自动构建 → 自动测试) ===
+# 前台运行
+./watchdog.sh
+
+# 后台运行
+./watchdog.sh --daemon
+
+# 查看状态 / 停止
+./watchdog.sh status
+./watchdog.sh stop
 ```
 
 ## Architecture

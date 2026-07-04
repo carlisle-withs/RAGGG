@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.List;
+import java.util.Map;
+
 @Component
 public class ComplexityRouter {
 
@@ -40,8 +43,7 @@ public class ComplexityRouter {
         try {
             long startTime = System.currentTimeMillis();
 
-            String prompt = buildPrompt(query, context);
-            String response = callLlm(prompt);
+            String response = callLlm(query, context);
 
             TaskComplexity result = parseResponse(response);
 
@@ -62,32 +64,33 @@ public class ComplexityRouter {
         }
     }
 
-    private String buildPrompt(String query, String context) {
-        return String.format("""
-            {
-                "model": "%s",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "判断以下问题是否为复杂任务（需要多步推理或多个知识源）。\n\n复杂任务的特征：\n- 需要多步推理（先...再...然后...）\n- 需要多个知识源（既查...又查...）\n- 存在依赖关系（...之后才能...）\n- 涉及多个实体或需要关联分析\n\n简单任务的特征：\n- 单意图\n- 无依赖关系\n- 单一知识源\n\n问题：%s\n\n上下文：%s\n\n返回格式：{\\\"complex\\\": true/false, \\\"reason\\\": \\\"简短原因\\\"}"
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 100
-            }
-            """,
-                reactConfig.getLightweightLlm().getModel(),
-                query,
-                context != null ? context : "无"
-        );
-    }
-
-    private String callLlm(String requestBody) {
+    private String callLlm(String query, String context) {
         try {
+            String prompt = "判断以下问题是否为复杂任务（需要多步推理或多个知识源）。\n\n" +
+                    "复杂任务的特征：\n" +
+                    "- 需要多步推理（先...再...然后...）\n" +
+                    "- 需要多个知识源（既查...又查...）\n" +
+                    "- 存在依赖关系（...之后才能...）\n" +
+                    "- 涉及多个实体或需要关联分析\n\n" +
+                    "简单任务的特征：\n" +
+                    "- 单意图\n" +
+                    "- 无依赖关系\n" +
+                    "- 单一知识源\n\n" +
+                    "问题：" + query + "\n\n" +
+                    "上下文：" + (context != null ? context : "无") + "\n\n" +
+                    "返回格式：{\"complex\": true/false, \"reason\": \"简短原因\"}";
+
+            Map<String, Object> body = Map.of(
+                    "model", reactConfig.getLightweightLlm().getModel(),
+                    "messages", List.of(Map.of("role", "user", "content", prompt)),
+                    "temperature", 0.1,
+                    "max_tokens", 100
+            );
+
             return webClient.post()
                     .uri("/chat/completions")
                     .header("Authorization", "Bearer " + reactConfig.getLightweightLlm().getApiKey())
-                    .bodyValue(requestBody)
+                    .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
                     .timeout(java.time.Duration.ofMillis(reactConfig.getRouter().getTimeoutMs() + 1000))

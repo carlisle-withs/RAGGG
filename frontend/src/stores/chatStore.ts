@@ -265,10 +265,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const token = storage.getToken();
 
     try {
-      const res = await fetch(`${API_BASE_URL}/chat`, {
+      const res = await fetch(`${API_BASE_URL}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "text/event-stream",
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
@@ -282,24 +283,56 @@ export const useChatStore = create<ChatState>((set, get) => ({
         throw new Error(`请求失败（${res.status}）`);
       }
 
-      const data = await res.json();
+      // NDJSON streaming: 每行一个 JSON 对象
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Stream not supported");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let nextConvId = conversationId;
+
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        try {
+          const parsed = JSON.parse(line);
+          if (get().streamingMessageId !== assistantId) return;
+          if (parsed.type === "token" && parsed.delta) {
+            get().appendStreamContent(parsed.delta);
+          } else if (parsed.type === "meta" && parsed.conversationId) {
+            nextConvId = parsed.conversationId;
+          }
+        } catch { /* skip unparseable */ }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) processLine(buffer);
+          break;
+        }
+        if (get().streamingMessageId !== assistantId) return;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) processLine(line);
+      }
 
       if (get().streamingMessageId !== assistantId) return;
 
       const lastTime = new Date().toISOString();
-      const nextConvId = data.conversationId || conversationId;
+      const finalConvId = nextConvId || conversationId;
 
       set((state) => ({
-        currentSessionId: nextConvId,
+        currentSessionId: finalConvId,
         isCreatingNew: false,
         sessions: upsertSession(state.sessions, {
-          id: nextConvId,
-          title: state.sessions.find((s) => s.id === nextConvId)?.title || "新对话",
+          id: finalConvId,
+          title: state.sessions.find((s) => s.id === finalConvId)?.title || trimmed.substring(0, 30),
           lastTime
         }),
         messages: state.messages.map((msg) =>
           msg.id === assistantId
-            ? { ...msg, content: data.message, status: "done" as const }
+            ? { ...msg, status: "done" as const }
             : msg
         ),
         isStreaming: false,

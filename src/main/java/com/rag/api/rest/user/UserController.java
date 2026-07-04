@@ -1,6 +1,9 @@
 package com.rag.api.rest.user;
 
+import com.rag.domain.model.User;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -19,7 +22,16 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser() {
-        // 未开启认证时，返回一个匿名 guest 用户
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof User user) {
+            return ResponseEntity.ok(Map.of(
+                    "id", user.getId(),
+                    "username", user.getUsername(),
+                    "role", user.getRole(),
+                    "avatar", user.getAvatar() != null ? user.getAvatar() : "",
+                    "deleted", user.getDeleted() != null ? user.getDeleted() : false
+            ));
+        }
         return ResponseEntity.ok(Map.of(
                 "id", 0L,
                 "username", "guest",

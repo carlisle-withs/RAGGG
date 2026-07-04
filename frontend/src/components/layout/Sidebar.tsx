@@ -213,12 +213,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <span className="block text-xs text-[#94A3B8]">从空白开始</span>
                 </span>
               </button>
-              {user?.role === "admin" ? (
+              {user?.role?.toUpperCase() === "ADMIN" ? (
                 <button
                   type="button"
                   className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#1D4ED8] transition-colors hover:bg-white"
                   onClick={() => {
-                    window.open("/admin", "_blank");
+                    navigate("/admin");
                     onClose();
                   }}
                 >
@@ -433,7 +433,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   哔哩哔哩
                 </a>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => logout()} className="text-rose-600 focus:text-rose-600">
+              <DropdownMenuItem onClick={async () => { await logout(); navigate("/login"); }} className="text-rose-600 focus:text-rose-600">
                 <LogOut className="mr-2 h-4 w-4" />
                 退出登录
               </DropdownMenuItem>

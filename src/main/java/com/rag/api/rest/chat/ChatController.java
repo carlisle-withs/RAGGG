@@ -1,12 +1,17 @@
 package com.rag.api.rest.chat;
 
 import com.rag.application.chat.ChatApplicationService;
+import com.rag.application.chat.MemoryService;
+import com.rag.application.retrieval.RetrievalApplicationService;
 import com.rag.domain.model.User;
 import com.rag.domain.repository.KnowledgeBaseRepository;
+import com.rag.infrastructure.llm.DeepSeekStreamingService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -18,10 +23,20 @@ public class ChatController {
 
     private final ChatApplicationService chatService;
     private final KnowledgeBaseRepository kbRepository;
+    private final DeepSeekStreamingService streamingService;
+    private final RetrievalApplicationService retrievalService;
+    private final MemoryService memoryService;
 
-    public ChatController(ChatApplicationService chatService, KnowledgeBaseRepository kbRepository) {
+    public ChatController(ChatApplicationService chatService,
+                          KnowledgeBaseRepository kbRepository,
+                          DeepSeekStreamingService streamingService,
+                          RetrievalApplicationService retrievalService,
+                          MemoryService memoryService) {
         this.chatService = chatService;
         this.kbRepository = kbRepository;
+        this.streamingService = streamingService;
+        this.retrievalService = retrievalService;
+        this.memoryService = memoryService;
     }
 
     @PostMapping("/chat")
@@ -59,6 +74,30 @@ public class ChatController {
                 response.intent() != null ? response.intent().intent().name() : null,
                 null
         ));
+    }
+
+    @PostMapping(value = "/chat/stream", produces = {MediaType.TEXT_PLAIN_VALUE, MediaType.TEXT_EVENT_STREAM_VALUE, "application/x-ndjson"})
+    public ResponseBodyEmitter streamChat(@RequestBody ChatRequest request) {
+        if (request.message() == null || request.message().trim().isEmpty()) {
+            ResponseBodyEmitter e = new ResponseBodyEmitter();
+            e.complete();
+            return e;
+        }
+
+        String conversationId = request.conversationId();
+        if (conversationId == null || conversationId.isEmpty()) {
+            conversationId = UUID.randomUUID().toString();
+        }
+
+        String kbId = (request.kbIds() != null && !request.kbIds().isEmpty())
+                ? request.kbIds().get(0)
+                : null;
+
+        User currentUser = getCurrentUser();
+        String userId = currentUser != null ? currentUser.getId().toString() : null;
+
+        return streamingService.streamChat(request.message(), kbId,
+                retrievalService, memoryService, userId, conversationId);
     }
 
     private boolean hasKbAccess(String kbId) {
