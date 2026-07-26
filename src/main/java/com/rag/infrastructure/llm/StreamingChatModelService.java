@@ -26,9 +26,7 @@ public class StreamingChatModelService {
     private final ObjectMapper objectMapper;
     private final Executor executor = Executors.newSingleThreadExecutor();
 
-    private static final String API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2";
-    private static final String AUTH_HEADER = "Bearer sk-cp-GZiEUROmyANxyr0sL20NVZeCQHUoivuZo0GXEAA6B55Ob6C5aCxXL2jKz2ELKsLXkdCJN-P8ANj-681kzpmeyL1Vj7EEbLfIlLgBcYmJlG-i53b94nUfpdY";
-    private static final String GROUP_ID = "2034153629136458495";
+    private static final String API_URL = "https://api.minimax.chat/v1/chat/completions";
 
     public StreamingChatModelService(AppConfig appConfig) {
         AppConfig.Llm llmConfig = appConfig.getLlm();
@@ -46,7 +44,7 @@ public class StreamingChatModelService {
             Process curlProcess = null;
             try {
                 // 将 JSON body 写入临时文件（避免命令行引号问题）
-                String jsonBody = "{\"model\":\"" + model + "\",\"stream\":true," +
+                String jsonBody = "{\"model\":\"" + model + "\",\"stream\":true,\"max_tokens\":4096," +
                         "\"messages\":[{\"role\":\"user\",\"content\":\"" + escapeJson(prompt) + "\"}]}";
                 tmpFile = Files.createTempFile("minimax_req", ".json");
                 Files.writeString(tmpFile, jsonBody, StandardCharsets.UTF_8);
@@ -59,8 +57,8 @@ public class StreamingChatModelService {
                     API_URL,
                     "-X", "POST",
                     "-H", "Content-Type: application/json",
-                    "-H", "Authorization: " + AUTH_HEADER,
-                    "-H", "group_id: " + GROUP_ID,
+                    "-H", "Authorization: Bearer " + apiKey,
+                    "-H", "group-id: " + groupId,
                     "-d", "@" + tmpFile.toString(),
                     "--max-time", "120"
                 );
@@ -76,8 +74,9 @@ public class StreamingChatModelService {
                             String data = line.substring(6).trim();
                             if ("[DONE]".equals(data)) {
                                 log.info("SSE DONE, fullResponse len={}", fullResponse.length());
-                                callback.onComplete(fullResponse.toString());
-                                future.complete(fullResponse.toString());
+                                String cleaned = M3ResponseCleaner.clean(fullResponse.toString());
+                                callback.onComplete(cleaned);
+                                future.complete(cleaned);
                                 return;
                             }
                             String content = extractContent(data);
@@ -91,8 +90,9 @@ public class StreamingChatModelService {
 
                 int exitCode = curlProcess.waitFor();
                 log.info("Curl exited with code: {}, fullResponse len={}", exitCode, fullResponse.length());
-                callback.onComplete(fullResponse.toString());
-                future.complete(fullResponse.toString());
+                String cleaned = M3ResponseCleaner.clean(fullResponse.toString());
+                callback.onComplete(cleaned);
+                future.complete(cleaned);
 
             } catch (Exception e) {
                 log.error("Stream error", e);

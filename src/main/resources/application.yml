@@ -56,9 +56,16 @@ elasticsearch:
 llm:
   provider: ${llm.provider:minimax}
   api-key: ${llm.api-key:}
-  model: ${llm.model:MiniMax-Text-01}
+  model: ${llm.model:MiniMax-M3}
   base-url: ${llm.base-url:https://api.minimax.chat/v1}
   group-id: ""
+  multimodal:
+    enabled: ${llm.multimodal.enabled:true}
+    vision:
+      enabled: ${llm.multimodal.vision.enabled:true}
+      max-image-size-mb: ${llm.multimodal.vision.max-image-size-mb:20}
+    video:
+      enabled: ${llm.multimodal.video.enabled:false}
 
 embedding:
   provider: siliconflow                           # ollama | siliconflow
