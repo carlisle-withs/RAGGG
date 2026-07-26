@@ -22,7 +22,7 @@ public class ChatModelService {
         AppConfig.Llm llmConfig = appConfig.getLlm();
 
         OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
-                .baseUrl(llmConfig.getBaseUrl() + "/chat/completions")
+                .baseUrl(llmConfig.getBaseUrl())
                 .apiKey(llmConfig.getApiKey())
                 .modelName(llmConfig.getModel())
                 .maxTokens(4096);  // M3 reasoning model needs larger token budget
