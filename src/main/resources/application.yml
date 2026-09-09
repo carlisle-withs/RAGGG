@@ -77,17 +77,23 @@ embedding:
   api-key: ${embedding.api-key:}                  # SiliconFlow API Key
   batch-size: 8
 
+# ===== P1: Reranker 配置 =====
 reranker:
   model: ${reranker.model:BAAI/bge-reranker-v2-m3}
   base-url: ${reranker.base-url:https://api.siliconflow.cn/v1}
   api-key: ${reranker.api-key:}
   enabled: ${reranker.enabled:true}
 
+# ===== P1: 检索策略配置 =====
 retrieval:
+  strategy: ${retrieval.strategy:hybrid}      # hybrid / hierarchical
   rerank:
     enabled: ${rerank.enabled:true}
     provider: ${rerank.provider:siliconflow}
-    final-topk: 5
+  final-topk: 5
+  swa:
+    merging-ratio: ${retrieval.swa.merging-ratio:0.5}  # Auto-Merging 合并阈值
+    window-size: ${retrieval.swa.window-size:3}        # Sentence Window 大小
 
 memory:
   window-size: ${MEMORY_WINDOW_SIZE:10}          # Redis 窗口失效后从 MySQL 回源重建的条数
@@ -111,10 +117,28 @@ minio:
   secret-key: ${minio.secret-key:minioadmin}
   bucket: ${minio.bucket:rag-documents}
 
+# ===== P1: OpenTelemetry 可观测性配置 =====
+otel:
+  enabled: false
+  service:
+    name: raggg
+    version: 1.0.0
+  exporter:
+    endpoint: http://localhost:4317
+  metrics:
+    interval-seconds: 30
+  resource:
+    env: dev
+  sampling:
+    ratio: 1.0
+
 logging:
   level:
     root: INFO
     com.rag: DEBUG
+    com.rag.infrastructure.observability: INFO
+    com.rag.infrastructure.llm.SiliconFlowReranker: INFO
+    com.rag.application.retrieval.HierarchicalRetrievalService: INFO
 
 # ===== Actuator + Prometheus Metrics =====
 management:
