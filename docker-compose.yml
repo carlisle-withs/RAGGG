@@ -106,7 +106,7 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: controller,broker
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29292
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://10.21.234.129:29292
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -235,9 +235,11 @@ services:
     container_name: rag-pushgateway
     restart: unless-stopped
     ports:
-      - "9091:9091"
+      - "19991:9091"
     networks:
       - rag-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ============ Attu Milvus Web UI ============
   attu:

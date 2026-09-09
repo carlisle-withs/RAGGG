@@ -1,0 +1,3 @@
+# RAGGG 压测依赖
+aiohttp>=3.9.0
+reportlab>=4.0.0
