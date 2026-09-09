@@ -3,6 +3,7 @@ package com.rag.infrastructure.llm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.application.chat.MemoryService;
+import com.rag.application.chat.QueryRewriter;
 import com.rag.application.retrieval.RetrievalApplicationService;
 import com.rag.config.AppConfig;
 import org.slf4j.Logger;
@@ -34,13 +35,15 @@ public class DeepSeekStreamingService {
     private final String apiUrl;
     private final String apiKey;
     private final String model;
+    private final QueryRewriter queryRewriter;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public DeepSeekStreamingService(AppConfig appConfig) {
+    public DeepSeekStreamingService(AppConfig appConfig, QueryRewriter queryRewriter) {
         AppConfig.Llm llmConfig = appConfig.getLlm();
         this.apiUrl = llmConfig.getBaseUrl() + "/chat/completions";
         this.apiKey = llmConfig.getApiKey();
         this.model = llmConfig.getModel();
+        this.queryRewriter = queryRewriter;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -75,8 +78,17 @@ public class DeepSeekStreamingService {
             StringBuilder prompt = new StringBuilder();
             if (kbId != null && !kbId.isEmpty() && retrievalService != null) {
                 try {
+                    // 指代消解：多轮追问先借记忆改写为独立问题再检索，
+                    // 避免"那它怎么配置"这类原话直接向量化导致召回脱靶
+                    String searchQuery = userMessage;
+                    if (!memoryContext.isEmpty()) {
+                        String condensed = queryRewriter.condenseWithMemory(userMessage, memoryContext);
+                        if (condensed != null) {
+                            searchQuery = condensed;
+                        }
+                    }
                     List<RetrievalApplicationService.RetrievalResult> sources =
-                            retrievalService.hybridSearch(userMessage, kbId, 5, true);
+                            retrievalService.hybridSearch(searchQuery, kbId, 5, true);
                     if (sources != null && !sources.isEmpty()) {
                         String ragContext = sources.stream()
                                 .map(s -> "【文档】" + s.content())

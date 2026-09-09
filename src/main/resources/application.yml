@@ -6,10 +6,16 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+  data:
+    redis:
+      host: ${redis.host:localhost}
+      port: ${redis.port:6379}
+      database: ${redis.database:0}
   servlet:
     multipart:
-      max-file-size: 100MB
-      max-request-size: 100MB
+      max-file-size: 2GB
+      max-request-size: 2GB
+      resolve-lazily: false
   kafka:
     bootstrap-servers: ${kafka.bootstrap-servers:localhost:29292}
     consumer:
@@ -42,6 +48,9 @@ spring:
 server:
   port: ${app.port:8081}
   address: ${app.host:0.0.0.0}
+  tomcat:
+    max-swallow-size: 2GB
+    max-http-form-post-size: 2GB
 
 # Custom config
 milvus:
@@ -81,9 +90,11 @@ retrieval:
     final-topk: 5
 
 memory:
-  window-size: ${memory.window-size:10}
-  summary-threshold: ${memory.summary-threshold:8}
-  ttl-days: ${memory.ttl-days:7}
+  window-size: ${MEMORY_WINDOW_SIZE:10}          # Redis 窗口失效后从 MySQL 回源重建的条数
+  summary-threshold: ${MEMORY_SUMMARY_THRESHOLD:8} # 条数触发阈值（辅助）
+  trigger-tokens: ${MEMORY_TRIGGER_TOKENS:2500}    # 窗口估算 token 触发阈值（主，单条长消息不受条数保护）
+  context-max-tokens: ${MEMORY_CONTEXT_MAX_TOKENS:3000} # 记忆上下文总预算（摘要+最近消息）
+  ttl-days: ${MEMORY_TTL_DAYS:7}
 
 chunking:
   chunk-size: ${chunking.chunk-size:512}

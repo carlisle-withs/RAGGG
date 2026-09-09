@@ -146,7 +146,7 @@ public class ChatApplicationService {
         log.info("Intent: {}, Confidence: {}", intentResult.intent(), intentResult.confidence());
 
         if (intentClassifier.needsRetrieval(intentResult)) {
-            return performRAG(message, kbId);
+            return performRAG(message, kbId, memoryContext);
         }
         return List.of();
     }
@@ -160,14 +160,21 @@ public class ChatApplicationService {
     }
 
     /**
-     * 执行 RAG 流程: 查询改写 + 检索
+     * 执行 RAG 流程: 指代消解 + 查询改写 + 检索
+     *
+     * 记忆上下文必须参与检索侧：多轮对话的追问（"那它怎么配置"）如果直接拿原话
+     * 去向量化，召回必然脱靶。先消解为独立完整问题，再做同义词扩展。
      */
-    private List<RetrievalApplicationService.RetrievalResult> performRAG(String message, String kbId) {
-        // 1. 查询改写 (扩展)
-        String expandedQuery = queryRewriter.expand(message);
+    private List<RetrievalApplicationService.RetrievalResult> performRAG(String message, String kbId, String memoryContext) {
+        // 1. 指代消解：借助记忆把追问改写为独立完整问题（无记忆时返回 null，跳过以省一次 LLM 调用）
+        String condensed = queryRewriter.condenseWithMemory(message, memoryContext);
+        String baseQuery = condensed != null ? condensed : message;
+
+        // 2. 查询扩展 (同义词/术语扩展)
+        String expandedQuery = queryRewriter.expand(baseQuery);
         log.info("Expanded query: {}", expandedQuery);
 
-        // 2. 使用混合检索
+        // 3. 使用混合检索
         List<RetrievalApplicationService.RetrievalResult> results =
                 retrievalService.hybridSearch(expandedQuery, kbId, 5, true);
 

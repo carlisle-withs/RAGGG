@@ -53,6 +53,54 @@ public class QueryRewriter {
     }
 
     /**
+     * 指代消解 (Condense Question)
+     *
+     * 多轮对话中用户常以"它/那这个"等指代性表达追问，直接拿原话去检索必然脱靶。
+     * 此方法借助对话记忆把追问改写为不依赖上下文的独立完整问题。
+     *
+     * @param question      用户当前问题（可能是追问）
+     * @param memoryContext 记忆上下文（MemoryService.buildContextPrompt 的输出；空表示单轮对话）
+     * @return 独立化后的查询；无记忆或改写失败时返回 null，调用方应退回原始查询
+     */
+    public String condenseWithMemory(String question, String memoryContext) {
+        if (memoryContext == null || memoryContext.isBlank()) {
+            return null; // 单轮对话无需消解，也避免多花一次 LLM 调用
+        }
+        try {
+            String prompt = buildCondensePrompt(question, memoryContext);
+            String condensed = chatModel.generate(prompt).trim();
+            log.info("Condensed query: {}", condensed);
+            return condensed.isEmpty() ? null : condensed;
+        } catch (Exception e) {
+            log.warn("Query condensation failed, fallback to original question", e);
+            return null;
+        }
+    }
+
+    /**
+     * 构建指代消解的 Prompt
+     */
+    private String buildCondensePrompt(String question, String memoryContext) {
+        return """
+                你是一个多轮对话查询改写专家。用户在对话中提出了一个新的问题（可能是"它/那这个"之类的指代性追问）。
+
+                任务: 结合对话历史，把用户的问题改写为一个**不依赖对话历史也能被准确理解**的独立完整问题。
+                - 把代词替换为其指代的实体
+                - 补全省略的上下文
+                - 如果问题本身已经完整，原样返回或做最小修正
+                - 只返回改写后的问题文本，不要解释
+
+                【对话历史】
+                %s
+
+                【用户问题】
+                %s
+
+                改写后的独立问题:
+                """.formatted(memoryContext, question);
+    }
+
+    /**
      * 查询分解
      *
      * 将复杂问题拆分为多个简单的子问题，

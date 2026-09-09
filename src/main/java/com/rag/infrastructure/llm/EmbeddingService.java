@@ -105,22 +105,53 @@ public class EmbeddingService {
     // ========== Ollama 模式实现 ==========
 
     private List<float[]> embedBatchOllama(List<String> texts) {
-        // Ollama API 不支持真正的批量，每条文本需要单独调用
-        // 使用并行请求提升吞吐量（每条独立，不互相阻塞）
-        List<CompletableFuture<float[]>> futures = new ArrayList<>(texts.size());
-        for (String text : texts) {
-            futures.add(CompletableFuture.supplyAsync(() -> embedOllama(text)));
-        }
-        List<float[]> results = new ArrayList<>(texts.size());
-        for (CompletableFuture<float[]> f : futures) {
-            try {
-                results.add(f.join());
-            } catch (Exception e) {
-                log.error("Ollama embedding failed: {}", e.getMessage());
-                throw new RuntimeException("Ollama embedding failed", e);
+        try {
+            var payload = objectMapper.createObjectNode();
+            payload.put("model", ollamaModel);
+            var inputArray = objectMapper.createArrayNode();
+            for (String t : texts) {
+                inputArray.add(t);
             }
+            payload.set("input", inputArray);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ollamaBaseUrl + "/api/embed"))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(120))
+                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString(), StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = ollamaClient.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Ollama batch embed error: HTTP " + response.statusCode() + " - " + response.body());
+            }
+
+            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode embeddingsNode = root.get("embeddings");
+            if (embeddingsNode == null || !embeddingsNode.isArray()) {
+                throw new RuntimeException("Invalid Ollama /api/embed response: missing 'embeddings' field");
+            }
+
+            List<float[]> results = new ArrayList<>(embeddingsNode.size());
+            for (JsonNode embNode : embeddingsNode) {
+                float[] arr = new float[embNode.size()];
+                for (int i = 0; i < embNode.size(); i++) {
+                    arr[i] = (float) embNode.get(i).asDouble();
+                }
+                results.add(arr);
+            }
+            return results;
+        } catch (java.net.http.HttpTimeoutException e) {
+            log.error("Ollama batch embedding 超时: {}", ollamaBaseUrl);
+            throw new RuntimeException("Ollama batch embedding timed out", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Ollama batch embedding interrupted", e);
+        } catch (Exception e) {
+            log.error("Ollama batch embedding failed for {} texts: {}", texts.size(), e.getMessage(), e);
+            throw new RuntimeException("Ollama batch embedding failed", e);
         }
-        return results;
     }
 
     private float[] embedOllama(String text) {

@@ -37,7 +37,7 @@ public class RagController {
             RagSettings rag,
             AiSettings ai
     ) {}
-    public record UploadSettings(int maxFileSize, int maxRequestSize) {}
+    public record UploadSettings(long maxFileSize, long maxRequestSize) {}
     public record Default(String collectionName, int dimension, String metricType) {}
     public record QueryRewrite(boolean enabled, int maxHistoryMessages, int maxHistoryChars) {}
     public record RateLimit(Map<String, Object> global) {}
@@ -65,7 +65,7 @@ public class RagController {
     @GetMapping("/settings")
     public ResponseEntity<SystemSettings> getSettings() {
         return ResponseEntity.ok(new SystemSettings(
-                new UploadSettings(52428800, 104857600),
+                new UploadSettings(2_147_483_648L, 2_147_483_648L),
                 new RagSettings(
                         new Default("rag_chunks", 1024, "COSINE"),
                         new QueryRewrite(true, 10, 2000),
@@ -80,21 +80,34 @@ public class RagController {
                 ),
                 new AiSettings(
                         Map.of(
-                                "minimax", Map.of(
-                                        "url", "https://api.minimax.chat/v1",
+                                "deepseek", Map.of(
+                                        "url", "https://api.deepseek.com/v1",
                                         "apiKey", "",
-                                        "endpoints", Map.of("chat", "/chat/completions", "embeddings", "/embeddings")
+                                        "endpoints", Map.of("chat", "/chat/completions")
+                                ),
+                                "siliconflow", Map.of(
+                                        "url", "https://api.siliconflow.cn/v1",
+                                        "apiKey", "",
+                                        "endpoints", Map.of("chat", "/chat/completions", "embeddings", "/embeddings", "rerank", "/rerank")
+                                ),
+                                "ollama", Map.of(
+                                        "url", "http://localhost:11434",
+                                        "apiKey", "",
+                                        "endpoints", Map.of("embeddings", "/api/embeddings")
                                 )
                         ),
                         new AiSelection(3, 300000),
                         new StreamSettings(50),
-                        new ModelGroup("MiniMax-M2.7", null, List.of(
-                                new ModelCandidate("MiniMax-M2.7", "minimax", "MiniMax-M2.7", null, null, 1, true, null)
+                        new ModelGroup("deepseek-chat", null, List.of(
+                                new ModelCandidate("deepseek-chat", "deepseek", "deepseek-chat", null, null, 1, true, null)
                         )),
                         new ModelGroup("BAAI/bge-m3", null, List.of(
-                                new ModelCandidate("BAAI/bge-m3", "minimax", "BAAI/bge-m3", null, 1024, 1, true, null)
+                                new ModelCandidate("bge-m3:latest", "ollama", "bge-m3:latest", null, 1024, 2, true, null),
+                                new ModelCandidate("BAAI/bge-m3", "siliconflow", "BAAI/bge-m3", null, 1024, 1, true, null)
                         )),
-                        null
+                        new ModelGroup("BAAI/bge-reranker-v2-m3", null, List.of(
+                                new ModelCandidate("BAAI/bge-reranker-v2-m3", "siliconflow", "BAAI/bge-reranker-v2-m3", null, null, 1, true, null)
+                        ))
                 )
         ));
     }
