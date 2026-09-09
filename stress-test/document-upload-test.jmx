@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.4" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan name="RAG Document Upload Stress Test" enabled="true">
+      <stringProp name="TestPlan.comments">压力测试: 文档上传/处理管道</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+      <stringProp name="TestPlan.user_define_classpath"></stringProp>
+    </TestPlan>
+    <hashTree>
+      <Arguments argumentsGroup="TestConfig">
+        <elementProp name="BASE_URL" elementType="Argument">
+          <stringProp name="Argument.name">BASE_URL</stringProp>
+          <stringProp name="Argument.value">http://localhost:8080</stringProp>
+          <stringProp name="Argument.metadata">=</stringProp>
+        </elementProp>
+        <elementProp name="TEST_FILE_PATH" elementType="Argument">
+          <stringProp name="Argument.name">TEST_FILE_PATH</stringProp>
+          <stringProp name="Argument.value">test-data</stringProp>
+          <stringProp name="Argument.metadata">=</stringProp>
+        </elementProp>
+        <elementProp name="KB_ID" elementType="Argument">
+          <stringProp name="Argument.name">KB_ID</stringProp>
+          <stringProp name="Argument.value">1</stringProp>
+          <stringProp name="Argument.metadata">=</stringProp>
+        </elementProp>
+        <elementProp name="CHUNK_STRATEGY" elementType="Argument">
+          <stringProp name="Argument.name">CHUNK_STRATEGY</stringProp>
+          <stringProp name="Argument.value">fixed</stringProp>
+          <stringProp name="Argument.metadata">=</stringProp>
+        </elementProp>
+      </Arguments>
+      <hashTree/>
+
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="T1-Single-Upload" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Single Document Upload" enabled="true">
+          <elementProp name="HTTPsampler.Files" elementType="HTTPFileArgs">
+            <collectionProp name="HTTPFileArgs.files">
+              <elementProp index="0">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">file</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="kbId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${KB_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">kbId</stringProp>
+              </elementProp>
+              <elementProp name="chunkStrategy" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${CHUNK_STRATEGY}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">chunkStrategy</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v1/documents/upload</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">true</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connects_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+      </hashTree>
+
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="T2-Concurrency-Upload-10" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">10</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">5</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Concurrent Document Upload" enabled="true">
+          <elementProp name="HTTPsampler.Files" elementType="HTTPFileArgs">
+            <collectionProp name="HTTPFileArgs.files">
+              <elementProp index="0">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">file</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="kbId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${KB_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">kbId</stringProp>
+              </elementProp>
+              <elementProp name="chunkStrategy" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${CHUNK_STRATEGY}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">chunkStrategy</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v1/documents/upload</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">true</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connects_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+      </hashTree>
+
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="T3-Concurrency-Upload-50" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">5</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">50</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="High Concurrency Upload" enabled="true">
+          <elementProp name="HTTPsampler.Files" elementType="HTTPFileArgs">
+            <collectionProp name="HTTPFileArgs.files">
+              <elementProp index="0">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">file</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="kbId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${KB_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">kbId</stringProp>
+              </elementProp>
+              <elementProp name="chunkStrategy" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${CHUNK_STRATEGY}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">chunkStrategy</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v1/documents/upload</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">true</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connects_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+      </hashTree>
+
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="T4-Batch-Upload" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">5</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">2</stringProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Batch Document Upload" enabled="true">
+          <elementProp name="HTTPsampler.Files" elementType="HTTPFileArgs">
+            <collectionProp name="HTTPFileArgs.files">
+              <elementProp index="0">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">files</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+              <elementProp index="1">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">files</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+              <elementProp index="2">
+                <stringProp name="path">${TEST_FILE_PATH}/test_1mb.pdf</stringProp>
+                <stringProp name="paramname">files</stringProp>
+                <stringProp name="contentType">application/octet-stream</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="kbId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${KB_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">kbId</stringProp>
+              </elementProp>
+              <elementProp name="chunkStrategy" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${CHUNK_STRATEGY}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">chunkStrategy</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/v1/documents/upload/batch</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">true</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connects_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree/>
+      </hashTree>
+
+      <ResultCollector guiclass="TableVisualizer" testclass="ResultCollector" testname="View Results in Table" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SaveService">
+            <stringProp name="SaveService RESULTS_FILE">results.jtl</stringProp>
+            <stringProp name="SaveService.LOG_TYPE">INFO</stringProp>
+            <stringProp name="SaveService.ENCODING">UTF-8</stringProp>
+            <stringProp name="SaveService.TEST_DATA_FORMAT">jtl</stringProp>
+            <stringProp name="SaveService.SKIP_XPATH">true</stringProp>
+            <stringProp name="SaveService.SKIP_NUMBER">false</stringProp>
+            <stringProp name="SaveService.SKIP_TEXT">false</stringProp>
+          </value>
+        </objProp>
+        <stringProp name="TestPlan.comments">Results Table</stringProp>
+        <stringProp name="filename">results.jtl</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SaveService">
+            <stringProp name="SaveService.RESPONSE_CODE">true</stringProp>
+            <stringProp name="SaveService.REQUEST_DATA">true</stringProp>
+            <stringProp name="SaveService.ERRORLOG">true</stringProp>
+            <stringProp name="SaveService.UNDERLYING_LISTENER">true</stringProp>
+            <stringProp name="SaveService.RESPONSE_HEADERS">false</stringProp>
+            <stringProp name="SaveService.QUERY_STRING">true</stringProp>
+            <stringProp name="SaveService.SAMPLER_DATA">true</stringProp>
+            <stringProp name="SaveService.RESPONSE_DATA">false</stringProp>
+            <stringProp name="SaveService.RESPONSE_MESSAGE">true</stringProp>
+            <stringProp name="SaveService.SUCCESS_FLAG">true</stringProp>
+            <stringProp name="SaveService.THREAD_NAME">true</stringProp>
+            <stringProp name="SaveService.RESULTS_FILE">summary.csv</stringProp>
+            <stringProp name="SaveService.LogEncoding"></stringProp>
+            <stringProp name="SaveService.TEST_DATA_FORMAT">csv</stringProp>
+            <stringProp name="SaveService.SKIP_XPATH">true</stringProp>
+            <stringProp name="SaveService.SKIP_NUMBER">false</stringProp>
+            <stringProp name="SaveService.SKIP_TEXT">false</stringProp>
+            <intProp name="SaveService.INDEX">1</intProp>
+          </value>
+        </objProp>
+        <stringProp name="filename">summary.csv</stringProp>
+      </ResultCollector>
+      <hashTree/>
+
+      <ResultCollector guiclass="RespTimeGraphVisualizer" testclass="ResultCollector" testname="Response Time Graph" enabled="true">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SaveService">
+            <stringProp name="SaveService.RESPONSE_CODE">false</stringProp>
+            <stringProp name="SaveService.REQUEST_DATA">false</stringProp>
+            <stringProp name="SaveService.ERRORLOG">false</stringProp>
+            <stringProp name="SaveService.UNDERLYING_LISTENER">true</stringProp>
+            <stringProp name="SaveService.RESPONSE_HEADERS">false</stringProp>
+            <stringProp name="SaveService.QUERY_STRING">false</stringProp>
+            <stringProp name="SaveService.SAMPLER_DATA">false</stringProp>
+            <stringProp name="SaveService.RESPONSE_DATA">false</stringProp>
+            <stringProp name="SaveService.RESPONSE_MESSAGE">false</stringProp>
+            <stringProp name="SaveService.SUCCESS_FLAG">false</stringProp>
+            <stringProp name="SaveService.THREAD_NAME">true</stringProp>
+            <stringProp name="SaveService.RESULTS_FILE"></stringProp>
+            <stringProp name="SaveService.LogEncoding"></stringProp>
+            <stringProp name="SaveService.TEST_DATA_FORMAT">csv</stringProp>
+            <stringProp name="SaveService.SKIP_XPATH">true</stringProp>
+            <stringProp name="SaveService.SKIP_NUMBER">false</intProp>
+            <stringProp name="SaveService.SKIP_TEXT">false</stringProp>
+          </value>
+        </objProp>
+        <stringProp name="filename">response_time_graph.csv</stringProp>
+        <intProp name="RespTimeGraphVisualizer.width">1200</intProp>
+        <intProp name="RespTimeGraphVisualizer.height">600</intProp>
+      </ResultCollector>
+      <hashTree/>
+
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

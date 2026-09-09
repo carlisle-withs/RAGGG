@@ -24,7 +24,8 @@ public class ChatModelService {
         OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
                 .baseUrl(llmConfig.getBaseUrl())
                 .apiKey(llmConfig.getApiKey())
-                .modelName(llmConfig.getModel());
+                .modelName(llmConfig.getModel())
+                .maxTokens(4096);  // M3 reasoning model needs larger token budget
 
         // Add group-id header for MiniMax API
         if (llmConfig.getGroupId() != null && !llmConfig.getGroupId().isEmpty()) {
@@ -33,15 +34,18 @@ public class ChatModelService {
             builder.customHeaders(headers);
         }
 
-        log.info("Using LLM: provider={}, model={}, baseUrl={}, groupId={}",
-                llmConfig.getProvider(), llmConfig.getModel(), llmConfig.getBaseUrl(), llmConfig.getGroupId());
+        log.info("Using LLM: provider={}, model={}, baseUrl={}, groupId={}, multimodal={}",
+                llmConfig.getProvider(), llmConfig.getModel(), llmConfig.getBaseUrl(),
+                llmConfig.getGroupId(), llmConfig.getMultimodal().isEnabled());
 
         this.chatModel = builder.build();
     }
 
     public String generate(String prompt) {
         try {
-            return chatModel.generate(prompt);
+            String response = chatModel.generate(prompt);
+            // Clean M3 <think> tags if present
+            return M3ResponseCleaner.clean(response);
         } catch (Exception e) {
             log.error("Failed to generate response", e);
             throw new RuntimeException("LLM generation failed: " + e.getMessage(), e);

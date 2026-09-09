@@ -82,11 +82,41 @@ public class AppConfig {
     }
 
     public static class Llm {
-        private String provider = "minimax";  // openai, minimax
+        private String provider = "minimax";
         private String apiKey = "";
         private String model = "MiniMax-Text-01";
         private String baseUrl = "https://api.minimax.chat/v1";
-        private String groupId = "";  // MiniMax specific
+        private String groupId = "";
+        private Multimodal multimodal = new Multimodal();
+
+        public static class Multimodal {
+            private boolean enabled = false;
+            private Vision vision = new Vision();
+            private Video video = new Video();
+
+            public static class Vision {
+                private boolean enabled = true;
+                private int maxImageSizeMb = 20;
+                public boolean isEnabled() { return enabled; }
+                public void setEnabled(boolean enabled) { this.enabled = enabled; }
+                public int getMaxImageSizeMb() { return maxImageSizeMb; }
+                public void setMaxImageSizeMb(int maxImageSizeMb) { this.maxImageSizeMb = maxImageSizeMb; }
+            }
+
+            public static class Video {
+                private boolean enabled = false;
+                public boolean isEnabled() { return enabled; }
+                public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public void setEnabled(boolean enabled) { this.enabled = enabled; }
+            public Vision getVision() { return vision; }
+            public void setVision(Vision vision) { this.vision = vision; }
+            public Video getVideo() { return video; }
+            public void setVideo(Video video) { this.video = video; }
+        }
+
         public String getProvider() { return provider; }
         public void setProvider(String provider) { this.provider = provider; }
         public String getApiKey() { return apiKey; }
@@ -97,6 +127,8 @@ public class AppConfig {
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getGroupId() { return groupId; }
         public void setGroupId(String groupId) { this.groupId = groupId; }
+        public Multimodal getMultimodal() { return multimodal; }
+        public void setMultimodal(Multimodal multimodal) { this.multimodal = multimodal; }
     }
 
     public static class Embedding {
