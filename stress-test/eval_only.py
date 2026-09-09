@@ -1,11 +1,12 @@
 """直接跑评测，跳过上传（文档已入库）"""
+import os
 import json, requests, aiohttp, asyncio
 from pathlib import Path
 from datasets import load_dataset
 from difflib import SequenceMatcher
 
 BASE_URL = "http://localhost:8081"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 KB_NAME = "PubMedQA全链路测试"
 MAX_ITEMS = 10
 TOP_K = 10

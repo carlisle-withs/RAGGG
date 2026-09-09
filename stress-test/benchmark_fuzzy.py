@@ -14,13 +14,14 @@
 
 测试向量和BM25对查询语义变化的敏感程度
 """
+import os
 import json, time, requests, aiohttp, asyncio
 from difflib import SequenceMatcher
 from pymilvus import connections, Collection
 
 BASE_URL = "http://localhost:8081"
 ES_URL = "http://localhost:29201"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 LOCAL_FILE = "D:\\Workspace\\RAGGG\\stress-test\\data\\pubmedqa_golden.jsonl"
 KB_NAME = "PubMedQA全链路测试"
 ES_INDEX = "rag_documents"

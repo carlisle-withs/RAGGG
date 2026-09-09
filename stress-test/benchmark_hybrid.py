@@ -12,6 +12,7 @@
   python benchmark_hybrid.py --items 20       # 20 条
   python benchmark_hybrid.py --retrieve-only   # 不重新 ingest，只测现有数据
 """
+import os
 import argparse
 import asyncio
 import time
@@ -24,7 +25,7 @@ from pymilvus import connections, Collection
 
 BASE_URL = "http://localhost:8081"
 ES_URL = "http://localhost:29201"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 KB_NAME = "PubMedQA混合检索测试"
 MAX_ITEMS = 10
 TOP_K = 10

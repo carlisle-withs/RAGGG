@@ -9,13 +9,14 @@
   4. 用 question 检索，走你们的 /retrieve 接口
   5. 内容匹配判断是否命中 golden sentences → 计算 Hit@K / MRR / NDCG
 """
+import os
 import json, time, requests, aiohttp, asyncio
 from pathlib import Path
 from datasets import load_dataset
 from difflib import SequenceMatcher
 
 BASE_URL = "http://localhost:8081"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 KB_NAME = "PubMedQA全链路测试"
 MAX_ITEMS = 5        # 测试多少条 PubMedQA（控制测试规模）
 POLL_INTERVAL = 3    # 秒：轮询文档处理状态的间隔

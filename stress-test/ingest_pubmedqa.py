@@ -8,11 +8,12 @@
 
   4. 评测 Hit@K / MRR / NDCG
 """
+import os
 import json, time, math, requests, aiohttp, asyncio
 from pathlib import Path
 
 BASE_URL = "http://localhost:8081"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 DATA_DIR = Path(__file__).parent / "data"
 GOLDEN_FILE = DATA_DIR / "pubmedqa_golden.jsonl"
 

@@ -8,11 +8,12 @@
   3. 等待 chunk + index 完成
   4. 评估 Hit@K
 """
+import os
 import json, time, requests, aiohttp, asyncio
 from difflib import SequenceMatcher
 
 BASE_URL = "http://localhost:8081"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 KB_NAME = "PubMedQA全链路测试"
 MAX_ITEMS = 10
 POLL_INTERVAL = 3

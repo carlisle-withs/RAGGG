@@ -1,6 +1,7 @@
+import os
 import requests
 
-api_key = "***REMOVED***"
+api_key = os.environ.get("SF_API_KEY", "")
 body = {
     "model": "BAAI/bge-reranker-v2-m3",
     "query": "特朗普面临的法律诉讼",

@@ -10,10 +10,11 @@
   5. 上传到知识库（中文 chunks）
   6. 用中文问题测试三种检索模式
 """
+import os
 import json, requests, time
 from pathlib import Path
 
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 LOCAL_FILE = "data/pubmedqa_golden.jsonl"
 OUTPUT_FILE = "data/pubmedqa_chinese.jsonl"
 LLM_MODEL = "Qwen/Qwen2.5-7B-Instruct"

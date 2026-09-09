@@ -13,6 +13,7 @@ RAG 性能压测脚本
   python benchmark_perf.py --items 50               # 测 50 条
   python benchmark_perf.py --retrieve-only           # 只测检索（不重新上传）
 """
+import os
 import argparse
 import asyncio
 import time
@@ -24,7 +25,7 @@ from difflib import SequenceMatcher
 from pymilvus import connections, Collection
 
 BASE_URL = "http://localhost:8081"
-SF_API_KEY = "***REMOVED***"
+SF_API_KEY = os.environ.get("SF_API_KEY", "")
 KB_NAME = "PubMedQA性能测试"
 MAX_ITEMS = 10
 TOP_K = 10
