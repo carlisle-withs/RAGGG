@@ -54,53 +54,54 @@ server:
 
 # Custom config
 milvus:
-  uri: ${milvus.uri:http://localhost:29530}
-  collection: ${milvus.collection:rag_chunks}
+  uri: ${MILVUS_URI:http://localhost:29530}
+  collection: ${MILVUS_COLLECTION:rag_chunks}
 
 elasticsearch:
-  host: ${elasticsearch.host:localhost}
-  port: ${elasticsearch.port:29201}
-  index: ${elasticsearch.index:rag_documents}
+  host: ${ELASTICSEARCH_HOST:localhost}
+  port: ${ELASTICSEARCH_PORT:29201}
+  index: ${ELASTICSEARCH_INDEX:rag_documents}
 
 llm:
-  provider: ${llm.provider:minimax}
-  api-key: ${llm.api-key:}
-  model: ${llm.model:MiniMax-M3}
-  base-url: ${llm.base-url:https://api.minimax.chat/v1}
+  # 注意: 这里用环境变量名(大写)而非自引用属性名，后者会导致属性解析失败
+  provider: ${LLM_PROVIDER:minimax}
+  api-key: ${LLM_API_KEY:}
+  model: ${LLM_MODEL:MiniMax-M3}
+  base-url: ${LLM_BASE_URL:https://api.minimax.chat/v1}
   group-id: ""
   multimodal:
-    enabled: ${llm.multimodal.enabled:true}
+    enabled: false                  # 多模态对话 opt-in，需配置支持视觉的模型
     vision:
-      enabled: ${llm.multimodal.vision.enabled:true}
-      max-image-size-mb: ${llm.multimodal.vision.max-image-size-mb:20}
+      enabled: true
+      max-image-size-mb: 20
     video:
-      enabled: ${llm.multimodal.video.enabled:false}
+      enabled: false
 
 embedding:
   provider: siliconflow                           # ollama | siliconflow
   model: BAAI/bge-m3                             # SiliconFlow 云端模型
   dimension: 1024                                # bge-m3 为 1024 维
   base-url: https://api.siliconflow.cn/v1         # SiliconFlow API 地址
-  api-key: ${embedding.api-key:}                  # SiliconFlow API Key
+  api-key: ${EMBEDDING_API_KEY:}                  # SiliconFlow API Key
   batch-size: 8
 
 # ===== P1: Reranker 配置 =====
 reranker:
-  model: ${reranker.model:BAAI/bge-reranker-v2-m3}
-  base-url: ${reranker.base-url:https://api.siliconflow.cn/v1}
-  api-key: ${reranker.api-key:}
-  enabled: ${reranker.enabled:true}
+  model: ${RERANKER_MODEL:BAAI/bge-reranker-v2-m3}
+  base-url: ${RERANKER_BASE_URL:https://api.siliconflow.cn/v1}
+  api-key: ${RERANKER_API_KEY:}
+  enabled: ${RERANKER_ENABLED:true}
 
 # ===== P1: 检索策略配置 =====
 retrieval:
-  strategy: ${retrieval.strategy:hybrid}      # hybrid / hierarchical
+  strategy: ${RETRIEVAL_STRATEGY:hybrid}      # hybrid / hierarchical
   rerank:
     enabled: ${rerank.enabled:true}
     provider: ${rerank.provider:siliconflow}
   final-topk: 5
   swa:
-    merging-ratio: ${retrieval.swa.merging-ratio:0.5}  # Auto-Merging 合并阈值
-    window-size: ${retrieval.swa.window-size:3}        # Sentence Window 大小
+    merging-ratio: ${RETRIEVAL_SWA_MERGING_RATIO:0.5}  # Auto-Merging 合并阈值
+    window-size: ${RETRIEVAL_SWA_WINDOW_SIZE:3}        # Sentence Window 大小
 
 memory:
   window-size: ${MEMORY_WINDOW_SIZE:10}          # Redis 窗口失效后从 MySQL 回源重建的条数
@@ -110,8 +111,8 @@ memory:
   ttl-days: ${MEMORY_TTL_DAYS:7}
 
 chunking:
-  chunk-size: ${chunking.chunk-size:512}
-  chunk-overlap: ${chunking.chunk-overlap:50}
+  chunk-size: ${CHUNKING_CHUNK_SIZE:512}
+  chunk-overlap: ${CHUNKING_CHUNK_OVERLAP:50}
 
 kafka-topics:
   document-raw: ${kafka.topics.document-raw:document-raw}
@@ -119,10 +120,10 @@ kafka-topics:
   document-indexed: ${kafka.topics.document-indexed:document-indexed}
 
 minio:
-  endpoint: ${minio.endpoint:http://localhost:29005}
-  access-key: ${minio.access-key:minioadmin}
-  secret-key: ${minio.secret-key:minioadmin}
-  bucket: ${minio.bucket:rag-documents}
+  endpoint: ${MINIO_ENDPOINT:http://localhost:29005}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:rag-documents}
 
 # ===== P1: OpenTelemetry 可观测性配置 =====
 otel:

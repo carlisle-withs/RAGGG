@@ -3,8 +3,7 @@ package com.rag.infrastructure.llm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.application.chat.MemoryService;
-import com.rag.application.chat.QueryRewriter;
-import com.rag.application.retrieval.RetrievalApplicationService;
+import com.rag.application.chat.RagContextService;
 import com.rag.config.AppConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +21,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 @Service
 public class DeepSeekStreamingService {
@@ -35,15 +33,15 @@ public class DeepSeekStreamingService {
     private final String apiUrl;
     private final String apiKey;
     private final String model;
-    private final QueryRewriter queryRewriter;
+    private final RagContextService ragContextService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public DeepSeekStreamingService(AppConfig appConfig, QueryRewriter queryRewriter) {
+    public DeepSeekStreamingService(AppConfig appConfig, RagContextService ragContextService) {
         AppConfig.Llm llmConfig = appConfig.getLlm();
         this.apiUrl = llmConfig.getBaseUrl() + "/chat/completions";
         this.apiKey = llmConfig.getApiKey();
         this.model = llmConfig.getModel();
-        this.queryRewriter = queryRewriter;
+        this.ragContextService = ragContextService;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -52,17 +50,15 @@ public class DeepSeekStreamingService {
     }
 
     public ResponseBodyEmitter streamChat(String userMessage, String kbId,
-                                  RetrievalApplicationService retrievalService,
                                   MemoryService memoryService,
                                   String userId, String conversationId) {
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(STREAM_TIMEOUT);
-        executor.execute(() -> doStream(emitter, userMessage, kbId, retrievalService,
+        executor.execute(() -> doStream(emitter, userMessage, kbId,
                 memoryService, userId, conversationId));
         return emitter;
     }
 
     private void doStream(ResponseBodyEmitter emitter, String userMessage, String kbId,
-                           RetrievalApplicationService retrievalService,
                            MemoryService memoryService,
                            String userId, String conversationId) {
         try {
@@ -76,25 +72,14 @@ public class DeepSeekStreamingService {
             }
 
             StringBuilder prompt = new StringBuilder();
-            if (kbId != null && !kbId.isEmpty() && retrievalService != null) {
+            if (kbId != null && !kbId.isEmpty()) {
                 try {
-                    // 指代消解：多轮追问先借记忆改写为独立问题再检索，
-                    // 避免"那它怎么配置"这类原话直接向量化导致召回脱靶
-                    String searchQuery = userMessage;
-                    if (!memoryContext.isEmpty()) {
-                        String condensed = queryRewriter.condenseWithMemory(userMessage, memoryContext);
-                        if (condensed != null) {
-                            searchQuery = condensed;
-                        }
-                    }
-                    List<RetrievalApplicationService.RetrievalResult> sources =
-                            retrievalService.hybridSearch(searchQuery, kbId, 5, true);
-                    if (sources != null && !sources.isEmpty()) {
-                        String ragContext = sources.stream()
-                                .map(s -> "【文档】" + s.content())
-                                .collect(Collectors.joining("\n\n"));
+                    // 统一检索管线：指代消解 + 查询扩展 + 混合检索 + 上下文拼装
+                    RagContextService.RagContext ragContext =
+                            ragContextService.build(userMessage, memoryContext, kbId);
+                    if (!ragContext.contextText().isEmpty()) {
                         prompt.append("请基于以下参考文档回答用户问题。\n\n")
-                              .append("【参考文档】\n").append(ragContext).append("\n\n");
+                              .append("【参考文档】\n").append(ragContext.contextText()).append("\n\n");
                     }
                 } catch (Exception e) {
                     log.warn("Retrieval failed for streaming", e);

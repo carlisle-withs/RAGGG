@@ -27,33 +27,30 @@ public class ChatApplicationService {
     private static final Logger log = LoggerFactory.getLogger(ChatApplicationService.class);
 
     private final ChatModelService chatModel;
-    private final RetrievalApplicationService retrievalService;
     private final MemoryService memoryService;
     private final IntentClassifier intentClassifier;
-    private final QueryRewriter queryRewriter;
     private final ComplexityRouter complexityRouter;
     private final ReActEngine reActEngine;
     private final ConversationRepository conversationRepository;
     private final Executor memorySummaryExecutor;
+    private final RagContextService ragContextService;
 
     public ChatApplicationService(ChatModelService chatModel,
-                                  RetrievalApplicationService retrievalService,
                                   MemoryService memoryService,
                                   IntentClassifier intentClassifier,
-                                  QueryRewriter queryRewriter,
                                   ComplexityRouter complexityRouter,
                                   ReActEngine reActEngine,
                                   ConversationRepository conversationRepository,
-                                  @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
+                                  @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor,
+                                  RagContextService ragContextService) {
         this.chatModel = chatModel;
-        this.retrievalService = retrievalService;
         this.memoryService = memoryService;
         this.intentClassifier = intentClassifier;
-        this.queryRewriter = queryRewriter;
         this.complexityRouter = complexityRouter;
         this.reActEngine = reActEngine;
         this.conversationRepository = conversationRepository;
         this.memorySummaryExecutor = memorySummaryExecutor;
+        this.ragContextService = ragContextService;
     }
 
     /**
@@ -160,24 +157,12 @@ public class ChatApplicationService {
     }
 
     /**
-     * 执行 RAG 流程: 指代消解 + 查询改写 + 检索
-     *
-     * 记忆上下文必须参与检索侧：多轮对话的追问（"那它怎么配置"）如果直接拿原话
-     * 去向量化，召回必然脱靶。先消解为独立完整问题，再做同义词扩展。
+     * 执行 RAG 流程：委托给统一的 RagContextService（指代消解 + 查询扩展 + 混合检索）。
+     * 流式链路与 v3 链路共用同一实现，避免多份管线各自漂移。
      */
     private List<RetrievalApplicationService.RetrievalResult> performRAG(String message, String kbId, String memoryContext) {
-        // 1. 指代消解：借助记忆把追问改写为独立完整问题（无记忆时返回 null，跳过以省一次 LLM 调用）
-        String condensed = queryRewriter.condenseWithMemory(message, memoryContext);
-        String baseQuery = condensed != null ? condensed : message;
-
-        // 2. 查询扩展 (同义词/术语扩展)
-        String expandedQuery = queryRewriter.expand(baseQuery);
-        log.info("Expanded query: {}", expandedQuery);
-
-        // 3. 使用混合检索
         List<RetrievalApplicationService.RetrievalResult> results =
-                retrievalService.hybridSearch(expandedQuery, kbId, 5, true);
-
+                ragContextService.build(message, memoryContext, kbId).sources();
         log.info("Retrieved {} sources", results.size());
         return results;
     }

@@ -7,24 +7,40 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+/**
+ * OpenAI 兼容格式的 SSE 流式对话客户端。
+ *
+ * 基于 JDK HttpClient 实现（连接池/超时/无外部进程依赖），
+ * 请求体经 ObjectMapper 序列化，不存在临时文件与手写 JSON 转义。
+ * SSE 解析只提取 delta.content，忽略 reasoning_content（思考过程）。
+ */
 @Component
 public class StreamingChatModelService {
 
     private static final Logger log = LoggerFactory.getLogger(StreamingChatModelService.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(120);
 
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
     private final String apiUrl;
-    private final String authHeader;
-    private final ObjectMapper objectMapper;
     private final Executor executor = Executors.newSingleThreadExecutor();
 
     public StreamingChatModelService(AppConfig appConfig) {
@@ -32,91 +48,77 @@ public class StreamingChatModelService {
         this.model = llmConfig.getModel();
         this.apiKey = llmConfig.getApiKey();
         this.apiUrl = llmConfig.getBaseUrl() + "/chat/completions";
-        this.authHeader = "Bearer " + llmConfig.getApiKey();
         this.objectMapper = new ObjectMapper();
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
         log.info("StreamingChatModel initialized: model={}, baseUrl={}", model, llmConfig.getBaseUrl());
     }
 
     public CompletableFuture<String> stream(String prompt, StreamingCallback callback) {
         CompletableFuture<String> future = new CompletableFuture<>();
-        executor.execute(() -> {
-            Path tmpFile = null;
-            Process curlProcess = null;
-            try {
-                // 将 JSON body 写入临时文件（避免命令行引号问题）
-                String jsonBody = "{\"model\":\"" + model + "\",\"stream\":true,\"max_tokens\":4096," +
-                        "\"messages\":[{\"role\":\"user\",\"content\":\"" + escapeJson(prompt) + "\"}]}";
-                tmpFile = Files.createTempFile("llm_req", ".json");
-                Files.writeString(tmpFile, jsonBody, StandardCharsets.UTF_8);
-
-                log.info("Calling LLM API via curl, prompt len={}", prompt.length());
-
-                // 使用 curl 调用 LLM API (OpenAI 兼容格式)
-                ProcessBuilder pb = new ProcessBuilder(
-                    "curl", "-s", "-N",
-                    apiUrl,
-                    "-X", "POST",
-                    "-H", "Content-Type: application/json",
-                    "-H", "Authorization: " + authHeader,
-                    "-d", "@" + tmpFile.toString(),
-                    "--max-time", "120"
-                );
-                pb.redirectErrorStream(true);
-                curlProcess = pb.start();
-
-                StringBuilder fullResponse = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(curlProcess.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.startsWith("data: ")) {
-                            String data = line.substring(6).trim();
-                            if ("[DONE]".equals(data)) {
-                                log.info("SSE DONE, fullResponse len={}", fullResponse.length());
-                                String cleaned = M3ResponseCleaner.clean(fullResponse.toString());
-                                callback.onComplete(cleaned);
-                                future.complete(cleaned);
-                                return;
-                            }
-                            String content = extractContent(data);
-                            if (content != null && !content.isEmpty()) {
-                                fullResponse.append(content);
-                                callback.onNext(content);
-                            }
-                        }
-                    }
-                }
-
-                int exitCode = curlProcess.waitFor();
-                log.info("Curl exited with code: {}, fullResponse len={}", exitCode, fullResponse.length());
-                String cleaned = M3ResponseCleaner.clean(fullResponse.toString());
-                callback.onComplete(cleaned);
-                future.complete(cleaned);
-
-            } catch (Exception e) {
-                log.error("Stream error", e);
-                callback.onError(e);
-                future.completeExceptionally(e);
-            } finally {
-                if (curlProcess != null && curlProcess.isAlive()) {
-                    curlProcess.destroyForcibly();
-                }
-                if (tmpFile != null) {
-                    try { Files.deleteIfExists(tmpFile); } catch (Exception ignored) {}
-                }
-            }
-        });
+        executor.execute(() -> doStream(prompt, callback, future));
         return future;
     }
 
-    private String escapeJson(String text) {
-        if (text == null) return "";
-        return text
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+    private void doStream(String prompt, StreamingCallback callback, CompletableFuture<String> future) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(Map.of(
+                    "model", model,
+                    "stream", true,
+                    "max_tokens", 4096,
+                    "messages", List.of(Map.of("role", "user", "content", prompt))
+            ));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(REQUEST_TIMEOUT)
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            log.info("Calling LLM streaming API, prompt len={}", prompt.length());
+
+            HttpResponse<InputStream> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() != 200) {
+                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+                throw new IOException("LLM API error: HTTP " + response.statusCode() + " - " + errBody);
+            }
+
+            StringBuilder fullResponse = new StringBuilder();
+            boolean done = false;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while (!done && (line = reader.readLine()) != null) {
+                    if (line.startsWith("data: ")) {
+                        String data = line.substring(6).trim();
+                        if ("[DONE]".equals(data)) {
+                            done = true;
+                            break;
+                        }
+                        String content = extractContent(data);
+                        if (content != null && !content.isEmpty()) {
+                            fullResponse.append(content);
+                            callback.onNext(content);
+                        }
+                    }
+                }
+            }
+
+            log.info("LLM stream finished, fullResponse len={}", fullResponse.length());
+            String cleaned = M3ResponseCleaner.clean(fullResponse.toString());
+            callback.onComplete(cleaned);
+            future.complete(cleaned);
+
+        } catch (Exception e) {
+            log.error("Stream error", e);
+            callback.onError(e);
+            future.completeExceptionally(e);
+        }
     }
 
     /**

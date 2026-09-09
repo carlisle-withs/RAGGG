@@ -1,8 +1,6 @@
 package com.rag.api.rest.rag;
 
-import com.rag.application.chat.MemoryService;
-import com.rag.application.chat.QueryRewriter;
-import com.rag.application.retrieval.RetrievalApplicationService;
+import com.rag.application.chat.RagContextService;
 import com.rag.infrastructure.llm.StreamingChatModelService;
 import com.rag.infrastructure.llm.StreamingChatModelService.StreamingCallback;
 import org.slf4j.Logger;
@@ -12,18 +10,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
-import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 /**
- * RAG V3 Chat 接口（代理到已有的 SSE 流式聊天实现）
- * 前端 /api/v1/rag/v3/chat → 本接口
+ * RAG V3 Chat 接口（SSE 兼容保留）。
+ *
+ * @deprecated 权威对话接口为 {@code POST /api/v1/chat}（同步）与
+ * {@code POST /api/v1/chat/stream}（流式，前端主链路）。
+ * 本 GET/SSE 端点为 v3 兼容保留，新功能请勿依赖。
  */
+@Deprecated
 @RestController
 @RequestMapping("/api/v1/rag/v3")
 public class RagChatController {
@@ -32,20 +30,14 @@ public class RagChatController {
     private static final long SSE_TIMEOUT = 300_000L;
 
     private final StreamingChatModelService streamingChatModel;
-    private final RetrievalApplicationService retrievalService;
-    private final MemoryService memoryService;
-    private final QueryRewriter queryRewriter;
+    private final RagContextService ragContextService;
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     public RagChatController(
             StreamingChatModelService streamingChatModel,
-            RetrievalApplicationService retrievalService,
-            MemoryService memoryService,
-            QueryRewriter queryRewriter) {
+            RagContextService ragContextService) {
         this.streamingChatModel = streamingChatModel;
-        this.retrievalService = retrievalService;
-        this.memoryService = memoryService;
-        this.queryRewriter = queryRewriter;
+        this.ragContextService = ragContextService;
     }
 
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -59,8 +51,10 @@ public class RagChatController {
         }
 
         if (conversationId == null || conversationId.isEmpty()) {
-            conversationId = UUID.randomUUID().toString();
+            conversationId = java.util.UUID.randomUUID().toString();
         }
+
+        log.info("Deprecated endpoint /api/v1/rag/v3/chat called; migrate to POST /api/v1/chat/stream");
 
         final String finalConversationId = conversationId;
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
@@ -111,24 +105,16 @@ public class RagChatController {
         }
     }
 
+    /**
+     * 统一检索管线（指代消解 + 查询扩展 + 混合检索 + 上下文拼装）。
+     * v3 为无状态 GET 接口，无用户身份，记忆上下文恒为空。
+     */
     private String buildPrompt(String question, String kbId) {
         StringBuilder prompt = new StringBuilder();
 
-        List<RetrievalApplicationService.RetrievalResult> sources = null;
-        if (kbId != null && !kbId.isEmpty()) {
-            try {
-                String expandedQuery = queryRewriter.expand(question);
-                sources = retrievalService.hybridSearch(expandedQuery, kbId, 5, true);
-            } catch (Exception e) {
-                log.warn("Failed to retrieve sources", e);
-            }
-        }
-
-        if (sources != null && !sources.isEmpty()) {
-            String ragContext = sources.stream()
-                    .map(s -> "【文档】" + s.content())
-                    .collect(Collectors.joining("\n\n"));
-            prompt.append("【参考文档】\n").append(ragContext).append("\n\n");
+        RagContextService.RagContext ragContext = ragContextService.build(question, "", kbId);
+        if (!ragContext.contextText().isEmpty()) {
+            prompt.append("【参考文档】\n").append(ragContext.contextText()).append("\n\n");
             prompt.append("【当前问题】\n").append(question).append("\n\n");
             prompt.append("请基于参考文档回答当前问题。如果参考文档中没有相关信息，请明确说明。");
         } else {
@@ -141,8 +127,8 @@ public class RagChatController {
     private void sendEvent(SseEmitter emitter, String eventName, String data) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));
-        } catch (IOException e) {
-            log.debug("SSE send failed, client may have disconnected", e);
+        } catch (Exception e) {
+            log.debug("SSE send failed, client may have disconnected");
         }
     }
 
