@@ -1,4 +1,5 @@
 import { api } from "@/services/api";
+import type { CitationSource } from "@/types";
 
 export interface ConversationVO {
   conversationId: string;
@@ -15,6 +16,7 @@ export interface ConversationMessageVO {
   thinkingDuration?: number | null;
   vote: number | null;
   createTime?: string;
+  sources?: CitationSource[] | null;
 }
 
 export async function listSessions() {

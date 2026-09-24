@@ -327,6 +327,14 @@ public class MemoryService {
     }
 
     public void addMessage(String userId, String conversationId, String role, String content) {
+        addMessage(userId, conversationId, role, content, null);
+    }
+
+    /**
+     * 带引用来源的消息写入：sourcesJson 为 [{chunkId, content, score}] 的 JSON 数组
+     * （仅 assistant 消息使用，随消息持久化到 t_message.sources，历史会话可回显引用）。
+     */
+    public void addMessage(String userId, String conversationId, String role, String content, String sourcesJson) {
         String messageKey = MESSAGE_KEY_PREFIX + conversationId;
 
         try {
@@ -336,7 +344,7 @@ public class MemoryService {
                 Long id = null;
                 try {
                     com.rag.domain.model.Message msg = new com.rag.domain.model.Message(
-                            conversationId, userId, role, content);
+                            conversationId, userId, role, content, sourcesJson);
                     id = messageRepository.save(msg).getId();
                 } catch (Exception e) {
                     log.warn("Failed to persist message to MySQL: {}", e.getMessage());

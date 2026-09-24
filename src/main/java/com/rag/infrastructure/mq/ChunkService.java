@@ -77,13 +77,11 @@ public class ChunkService {
         this.chunkCountSummary = DistributionSummary.builder("doc.pipeline.chunk_count").description("每个文档的分块数量分布").baseUnit("chunks").register(meterRegistry);
     }
 
+    /** 监听方法直接标注 @Transactional：@KafkaListener 由容器经 Spring 代理调用，事务真实生效
+     *  （此前 this.doProcess() 自调用绕过代理，@Transactional 形同虚设）。 */
     @KafkaListener(topics = KafkaTopics.DOCUMENT_PARSED, groupId = "${spring.kafka.consumer.group-id}-chunk")
-    public void consume(String message) {
-        doProcess(message);
-    }
-
     @Transactional
-    public void doProcess(String message) {
+    public void consume(String message) {
         long t0 = System.nanoTime();
         try {
             DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);
@@ -127,8 +125,9 @@ public class ChunkService {
                 tracer.info("使用智能分块（基于 MIME 类型: %s）", mimeType);
                 chunks = chunkStrategyFactory.getIntelligentChunks(text, event.getDocumentId(), event.getKbId(), mimeType);
             } else {
-                ChunkStrategy strategy = chunkStrategyFactory.getStrategy(strategyName, new HashMap<>());
-                chunks = strategy.chunk(text, event.getDocumentId(), event.getKbId());
+                // 透传上传时指定的分块参数（此前传空 Map，用户自定义参数全部无效）
+                chunks = chunkStrategyFactory.getStrategy(strategyName, extractChunkParams(metadata))
+                        .chunk(text, event.getDocumentId(), event.getKbId());
             }
             chunkingAlgoTimer.record(System.nanoTime() - t2, TimeUnit.NANOSECONDS);
 
@@ -199,5 +198,22 @@ public class ChunkService {
                 log.error("Failed to update document status to FAILED", ex);
             }
         }
+    }
+
+    /** 从事件 metadata 提取分块参数（applyParams 期待的键，统一转 Integer 防止 Kafka JSON 反序列化为 Long） */
+    private static final String[] CHUNK_PARAM_KEYS = {
+            "chunkSize", "chunkOverlap", "minParagraphLength", "maxParagraphLength",
+            "maxTokensPerChunk", "minTokensPerChunk", "similarityThreshold"
+    };
+
+    private Map<String, Object> extractChunkParams(Map<String, Object> metadata) {
+        Map<String, Object> params = new HashMap<>();
+        for (String key : CHUNK_PARAM_KEYS) {
+            Object v = metadata.get(key);
+            if (v instanceof Number n) {
+                params.put(key, n.intValue());
+            }
+        }
+        return params;
     }
 }

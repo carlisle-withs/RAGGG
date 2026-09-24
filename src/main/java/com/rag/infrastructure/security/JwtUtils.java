@@ -71,6 +71,10 @@ public class JwtUtils {
         return (String) extractClaims(token).get("role");
     }
 
+    public boolean isRefreshToken(String token) {
+        return "refresh".equals(extractClaims(token).get("type"));
+    }
+
     public Date extractExpiration(String token) {
         return extractClaims(token).getExpiration();
     }

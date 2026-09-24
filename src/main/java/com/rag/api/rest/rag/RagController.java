@@ -1,18 +1,34 @@
 package com.rag.api.rest.rag;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.rag.domain.model.RagTraceNode;
+import com.rag.domain.model.RagTraceRun;
+import com.rag.domain.repository.RagTraceNodeRepository;
+import com.rag.domain.repository.RagTraceRunRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
 
 /**
- * RAG 辅助接口（stub 实现）
- * 覆盖：sample-questions、settings、traces、v3/stop
+ * RAG 辅助接口
+ * 覆盖：sample-questions（stub）、settings（静态视图）、traces（真实数据）、v3/stop（stub）
  */
 @RestController
 @RequestMapping("/api/v1/rag")
 public class RagController {
+
+    private final RagTraceRunRepository traceRunRepository;
+    private final RagTraceNodeRepository traceNodeRepository;
+
+    public RagController(RagTraceRunRepository traceRunRepository,
+                         RagTraceNodeRepository traceNodeRepository) {
+        this.traceRunRepository = traceRunRepository;
+        this.traceNodeRepository = traceNodeRepository;
+    }
 
     // ---- sample-questions ----
 
@@ -138,20 +154,71 @@ public class RagController {
             @RequestParam(required = false) String conversationId,
             @RequestParam(required = false) String taskId,
             @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(new PageResult<>(Collections.emptyList(), 0, size, current, 0));
+        PageRequest pageable = PageRequest.of(Math.max(0, current - 1), Math.max(1, size),
+                Sort.by(Sort.Direction.DESC, "createTime"));
+        Page<RagTraceRun> page = traceRunRepository.search(
+                blankToNull(traceId), blankToNull(conversationId),
+                blankToNull(taskId), blankToNull(status), pageable);
+        List<TraceRun> records = page.getContent().stream().map(this::toTraceRun).toList();
+        return ResponseEntity.ok(new PageResult<>(records, page.getTotalElements(),
+                page.getSize(), current, page.getTotalPages()));
     }
 
     @GetMapping("/traces/runs/{traceId}")
     public ResponseEntity<Map<String, Object>> getTraceDetail(@PathVariable String traceId) {
-        return ResponseEntity.ok(Map.of(
-                "run", Collections.emptyMap(),
-                "nodes", Collections.emptyList()
-        ));
+        return traceRunRepository.findByTraceIdAndDeletedFalse(traceId)
+                .<ResponseEntity<Map<String, Object>>>map(run -> ResponseEntity.ok(Map.of(
+                        "run", toTraceRun(run),
+                        "nodes", traceNodeRepository
+                                .findByTraceIdAndDeletedFalseOrderByStartTimeAsc(traceId)
+                                .stream().map(this::toTraceNode).toList()
+                )))
+                .orElseGet(() -> ResponseEntity.ok(Map.of(
+                        "run", Collections.emptyMap(),
+                        "nodes", Collections.emptyList()
+                )));
     }
 
     @GetMapping("/traces/runs/{traceId}/nodes")
     public ResponseEntity<List<Map<String, Object>>> getTraceNodes(@PathVariable String traceId) {
-        return ResponseEntity.ok(Collections.emptyList());
+        List<Map<String, Object>> nodes = traceNodeRepository
+                .findByTraceIdAndDeletedFalseOrderByStartTimeAsc(traceId)
+                .stream().map(this::toTraceNode)
+                .toList();
+        return ResponseEntity.ok(nodes);
+    }
+
+    private String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private TraceRun toTraceRun(RagTraceRun r) {
+        return new TraceRun(
+                r.getTraceId(), r.getTraceName(), r.getEntryMethod(),
+                r.getConversationId(), r.getTaskId(), r.getUserId(),
+                r.getStatus(), r.getErrorMessage(), r.getDurationMs(),
+                r.getStartTime() != null ? r.getStartTime().toString() : null,
+                r.getEndTime() != null ? r.getEndTime().toString() : null
+        );
+    }
+
+    private Map<String, Object> toTraceNode(RagTraceNode n) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("traceId", n.getTraceId());
+        m.put("nodeId", n.getNodeId());
+        m.put("parentNodeId", n.getParentNodeId());
+        m.put("depth", n.getDepth());
+        m.put("nodeType", n.getNodeType());
+        m.put("nodeName", n.getNodeName());
+        m.put("className", n.getClassName());
+        m.put("methodName", n.getMethodName());
+        m.put("status", n.getStatus());
+        m.put("errorMessage", n.getErrorMessage());
+        m.put("durationMs", n.getDurationMs());
+        m.put("startTime", n.getStartTime() != null ? n.getStartTime().toString() : null);
+        m.put("endTime", n.getEndTime() != null ? n.getEndTime().toString() : null);
+        m.put("extraData", n.getExtraData());
+        return m;
     }
 
     // ---- v3 stop ----

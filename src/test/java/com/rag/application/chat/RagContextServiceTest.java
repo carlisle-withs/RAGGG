@@ -2,8 +2,8 @@ package com.rag.application.chat;
 
 import com.rag.application.retrieval.RetrievalApplicationService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -31,8 +31,24 @@ class RagContextServiceTest {
     @Mock
     private RetrievalApplicationService retrievalService;
 
-    @InjectMocks
+    @Mock
+    private com.rag.application.chat.QueryTermService queryTermService;
+
+    @Mock
+    private com.rag.domain.repository.RagTraceRunRepository traceRunRepository;
+
+    @Mock
+    private com.rag.domain.repository.RagTraceNodeRepository traceNodeRepository;
+
     private RagContextService service;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient().when(queryTermService.applyMappings(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        service = new RagContextService(queryRewriter, retrievalService, 4000,
+                queryTermService, traceRunRepository, traceNodeRepository);
+    }
 
     private RetrievalApplicationService.RetrievalResult result(String id, String content) {
         return new RetrievalApplicationService.RetrievalResult(id, content, 0.9, 0.9);

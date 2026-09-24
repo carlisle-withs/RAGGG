@@ -8,17 +8,26 @@ import com.rag.application.chat.react.model.ActionType;
 import com.rag.config.AppConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapperResultSetExtractor;
 import org.springframework.stereotype.Component;
 
+import java.sql.PreparedStatement;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
 public class ActionExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(ActionExecutor.class);
+
+    /** FROM/JOIN 后的表名提取（配合表白名单） */
+    private static final Pattern TABLE_PATTERN = Pattern.compile("\\b(?:from|join)\\s+([a-z_][a-z0-9_.]*)");
 
     private final HybridRetrievalService hybridRetrievalService;
     private final MemoryService memoryService;
@@ -81,8 +90,11 @@ public class ActionExecutor {
                     .map(r -> String.format("[%s] %s", r.chunkId(), r.content()))
                     .collect(Collectors.joining("\n\n"));
 
-            return ActionResult.success(ActionType.RETRIEVE_KNOWLEDGE,
+            ActionResult actionResult = ActionResult.success(ActionType.RETRIEVE_KNOWLEDGE,
                     String.format("找到 %d 条相关信息:\n%s", results.size(), content));
+            // 携带原始检索命中，供上层做引用溯源（此前 ReAct 分支 sources 恒为空）
+            actionResult.setSources(results);
+            return actionResult;
 
         } catch (Exception e) {
             log.error("Knowledge retrieval failed: {}", e.getMessage(), e);
@@ -104,9 +116,22 @@ public class ActionExecutor {
             return ActionResult.failure(ActionType.QUERY_DATABASE, "无法从问题中提取有效的 SQL 查询");
         }
 
+        String violation = validateSqlGuardrails(sql);
+        if (violation != null) {
+            log.warn("Rejected SQL by guardrail: reason={}, sql={}", violation, sql);
+            return ActionResult.failure(ActionType.QUERY_DATABASE, "SQL 被安全策略拒绝: " + violation);
+        }
+
         try {
             log.info("Executing SQL: {}", sql);
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
+            final String safeSql = sql;
+            int maxRows = reactConfig.getActions().getDatabase().getMaxRows();
+            List<Map<String, Object>> rows = jdbcTemplate.query(con -> {
+                PreparedStatement ps = con.prepareStatement(safeSql);
+                ps.setMaxRows(maxRows);
+                ps.setQueryTimeout(10);
+                return ps;
+            }, new RowMapperResultSetExtractor<>(new ColumnMapRowMapper()));
 
             if (rows.isEmpty()) {
                 return ActionResult.success(ActionType.QUERY_DATABASE, "查询结果为空");
@@ -190,6 +215,48 @@ public class ActionExecutor {
                 String sql = query.substring(selectIdx, lowerQuery.indexOf(";", fromIdx) > 0
                         ? lowerQuery.indexOf(";", fromIdx) : query.length());
                 return sql.trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * SQL 安全护栏（react.actions.database 配置）：
+     * readOnly=true 时仅放行单条 SELECT/WITH；可选表白名单。
+     *
+     * @return 拒绝原因；null 表示放行
+     */
+    private String validateSqlGuardrails(String sql) {
+        AppConfig.React.Actions.Database db = reactConfig.getActions().getDatabase();
+        String lower = sql.toLowerCase().replace("`", "");
+        String trimmed = lower.trim();
+
+        if (db.isReadOnly()) {
+            if (lower.contains(";")) {
+                return "只读模式下禁止分号/多语句";
+            }
+            if (lower.contains("--") || lower.contains("/*")) {
+                return "只读模式下禁止注释";
+            }
+            boolean selectOnly = trimmed.startsWith("select ") || trimmed.startsWith("with ")
+                    || trimmed.equals("select");
+            if (!selectOnly) {
+                return "只读模式下仅允许 SELECT 查询";
+            }
+            if (Pattern.compile("\\binto\\s+(outfile|dumpfile)\\b").matcher(lower).find()) {
+                return "只读模式下禁止导出文件";
+            }
+        }
+
+        List<String> whitelist = db.getAllowedTables();
+        if (whitelist != null && !whitelist.isEmpty()) {
+            Set<String> allowed = whitelist.stream().map(t -> t.toLowerCase().trim()).collect(Collectors.toSet());
+            Matcher m = TABLE_PATTERN.matcher(lower);
+            while (m.find()) {
+                String table = m.group(1);
+                if (!allowed.contains(table)) {
+                    return "表 '" + table + "' 不在白名单内";
+                }
             }
         }
         return null;

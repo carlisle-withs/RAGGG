@@ -135,6 +135,15 @@ public class ElasticsearchSearch {
                 result.setId(hit.source().get("id").toString());
                 result.setContent(hit.source().get("content").toString());
                 result.setScore(hit.score() != null ? hit.score() : 0.0);
+                // metadata 已在 indexBatch 写入（动态 mapping），检索侧带回供 SWA 使用
+                Object meta = hit.source().get("metadata");
+                if (meta instanceof Map<?, ?> metaMap) {
+                    Map<String, String> metadata = new java.util.HashMap<>();
+                    metaMap.forEach((k, v) -> {
+                        if (k != null && v != null) metadata.put(k.toString(), v.toString());
+                    });
+                    result.setMetadata(metadata);
+                }
                 results.add(result);
             }
             return results;
@@ -157,12 +166,17 @@ public class ElasticsearchSearch {
         private String id;
         private String content;
         private double score;
+        private java.util.Map<String, String> metadata = new java.util.HashMap<>();
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
         public String getContent() { return content; }
         public void setContent(String content) { this.content = content; }
         public double getScore() { return score; }
+        public java.util.Map<String, String> getMetadata() { return metadata; }
+        public void setMetadata(java.util.Map<String, String> metadata) {
+            this.metadata = metadata != null ? metadata : new java.util.HashMap<>();
+        }
         public void setScore(double score) { this.score = score; }
     }
 }

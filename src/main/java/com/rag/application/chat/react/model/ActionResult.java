@@ -1,5 +1,7 @@
 package com.rag.application.chat.react.model;
 
+import java.util.List;
+
 public class ActionResult {
 
     private ActionType actionType;
@@ -7,6 +9,8 @@ public class ActionResult {
     private String observation;
     private String errorMessage;
     private long executionTimeMs;
+    /** RETRIEVE_KNOWLEDGE 动作携带的检索命中（引用溯源用；不参与缓存与相等性） */
+    private transient List<?> sources;
 
     public ActionResult() {}
 
@@ -42,4 +46,6 @@ public class ActionResult {
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public long getExecutionTimeMs() { return executionTimeMs; }
     public void setExecutionTimeMs(long executionTimeMs) { this.executionTimeMs = executionTimeMs; }
+    public List<?> getSources() { return sources; }
+    public void setSources(List<?> sources) { this.sources = sources; }
 }

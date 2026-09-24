@@ -2,6 +2,8 @@ package com.rag.infrastructure.llm;
 
 import com.rag.application.retrieval.HybridRetrievalService;
 import com.rag.config.AppConfig;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -32,17 +34,31 @@ public class SiliconFlowReranker {
     private final String apiKey;
     private final String model;
     private final boolean enabled;
+    private final MeterRegistry meterRegistry;
 
-    public SiliconFlowReranker(AppConfig appConfig, RestTemplateBuilder builder) {
+    public SiliconFlowReranker(AppConfig appConfig, RestTemplateBuilder builder, MeterRegistry meterRegistry) {
         AppConfig.Reranker cfg = appConfig.getReranker();
         this.enabled = cfg != null && cfg.isEnabled();
         this.baseUrl = cfg != null ? cfg.getBaseUrl() : "https://api.siliconflow.cn/v1";
         this.apiKey = cfg != null ? cfg.getApiKey() : "";
         this.model = cfg != null ? cfg.getModel() : "BAAI/bge-reranker-v2-m3";
         this.restTemplate = builder.build();
+        this.meterRegistry = meterRegistry;
 
         log.info("[CrossEncoder] SiliconFlowReranker initialized: enabled={}, model={}, baseUrl={}",
                 enabled, model, baseUrl);
+    }
+
+    /**
+     * 重排降级计数：静默回退是已知事故来源（PubMedQA 评测 0/196 排序被改变而长期未察觉），
+     * 必须可观测。reason: api_error / http_status / empty_result / unexpected
+     */
+    private void countFallback(String reason) {
+        Counter.builder("rerank_fallback_total")
+                .description("Reranker silently fell back to unranked order")
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
     }
 
     /**
@@ -85,7 +101,9 @@ public class SiliconFlowReranker {
             requestBody.put("model", model);
             requestBody.put("query", query);
             requestBody.put("documents", documents);
-            requestBody.put("top_n", Math.min(topK, candidates.size()));
+            // 始终对全部候选打分：若只请求 top_n，未进返回集的候选会拿 RRF 分当 relevance，
+            // 两种分数量纲（~0.016 vs 0~1）混排导致排序错乱。截断在拿到全量分数后进行。
+            requestBody.put("top_n", candidates.size());
 
             // 发送请求
             HttpHeaders headers = new HttpHeaders();
@@ -106,6 +124,7 @@ public class SiliconFlowReranker {
 
                 if (results == null || results.isEmpty()) {
                     log.warn("[CrossEncoder] Empty results from SiliconFlow API");
+                    countFallback("empty_result");
                     return candidates;
                 }
 
@@ -126,17 +145,20 @@ public class SiliconFlowReranker {
                             c.chunkId(), c.content(), c.score(), newScore));
                 }
 
-                // 按 relevance_score 降序
+                // 按 relevance_score 降序，再截断到 topK
                 reranked.sort(Comparator.comparingDouble(HybridRetrievalService.RetrievalResult::relevance).reversed());
+                List<HybridRetrievalService.RetrievalResult> top = reranked.size() > topK
+                        ? new ArrayList<>(reranked.subList(0, topK)) : reranked;
 
                 log.info("[CrossEncoder] Reranked {} candidates in {}ms, top relevance={}",
                         candidates.size(), latency,
-                        reranked.isEmpty() ? 0 : reranked.get(0).relevance());
+                        top.isEmpty() ? 0 : top.get(0).relevance());
 
-                return reranked;
+                return top;
             } else {
                 log.warn("[CrossEncoder] SiliconFlow API returned status={}, falling back to candidates",
                         response.getStatusCode());
+                countFallback("http_status_" + response.getStatusCode().value());
                 return candidates;
             }
 
@@ -144,9 +166,11 @@ public class SiliconFlowReranker {
             long latency = System.currentTimeMillis() - start;
             log.warn("[CrossEncoder] API call failed after {}ms, falling back to candidates: {}",
                     latency, e.getMessage());
+            countFallback("api_error");
             return candidates;
         } catch (Exception e) {
             log.error("[CrossEncoder] Unexpected error during reranking", e);
+            countFallback("unexpected");
             return candidates;
         }
     }

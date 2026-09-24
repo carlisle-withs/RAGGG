@@ -27,7 +27,13 @@ public class LoopDetector {
     private final LocalLlmClient localLlmClient;
     private final ObjectMapper objectMapper;
 
-    private final List<String> fingerprintHistory = new ArrayList<>();
+    /**
+     * 单次执行的指纹历史。此前为实例字段：LoopDetector 是单例，并发 ReAct 请求
+     * 会互相污染/重置指纹历史，导致误判死循环——现改为每次 execute() 创建独立状态。
+     */
+    public static class ExecutionState {
+        private final List<String> fingerprintHistory = new ArrayList<>();
+    }
 
     private static final Pattern NOISE_PATTERN = Pattern.compile(
             "\\d{4}-\\d{2}-\\d{2}[T\\s]\\d{2}:\\d{2}:\\d{2}.*|" +
@@ -46,7 +52,11 @@ public class LoopDetector {
                 reactConfig.getLoopDetection().getFingerprintMatchCount());
     }
 
-    public LoopDetectionResult detect(Action action, ActionResult result) {
+    public ExecutionState newState() {
+        return new ExecutionState();
+    }
+
+    public LoopDetectionResult detect(ExecutionState state, Action action, ActionResult result) {
         if (!reactConfig.getLoopDetection().isEnabled()) {
             return LoopDetectionResult.notLoop(null, null);
         }
@@ -58,14 +68,14 @@ public class LoopDetector {
             log.debug("Loop detection: action={}, fact={}, fingerprint={}",
                     action.getType(), truncate(extractedFact), fingerprint);
 
-            fingerprintHistory.add(fingerprint);
+            state.fingerprintHistory.add(fingerprint);
 
-            int matchCount = countConsecutiveMatches(fingerprint);
+            int matchCount = countConsecutiveMatches(state, fingerprint);
 
             if (matchCount >= reactConfig.getLoopDetection().getFingerprintMatchCount()) {
                 log.warn("Loop detected: fingerprint={}, consecutiveMatches={}",
                         fingerprint, matchCount);
-                fingerprintHistory.clear();
+                state.fingerprintHistory.clear();
                 return LoopDetectionResult.loop(fingerprint, extractedFact, matchCount);
             }
 
@@ -77,17 +87,8 @@ public class LoopDetector {
         }
     }
 
-    public int getCurrentIterations() {
-        return fingerprintHistory.size();
-    }
-
-    public boolean isMaxIterationsReached() {
-        return fingerprintHistory.size() >= reactConfig.getLoopDetection().getMaxIterations();
-    }
-
-    public void reset() {
-        fingerprintHistory.clear();
-        log.debug("LoopDetector reset");
+    public boolean isMaxIterationsReached(ExecutionState state) {
+        return state.fingerprintHistory.size() >= reactConfig.getLoopDetection().getMaxIterations();
     }
 
     private String extractCoreFact(Action action, ActionResult result) {
@@ -153,7 +154,8 @@ public class LoopDetector {
         }
     }
 
-    private int countConsecutiveMatches(String fingerprint) {
+    private int countConsecutiveMatches(ExecutionState state, String fingerprint) {
+        List<String> fingerprintHistory = state.fingerprintHistory;
         if (fingerprintHistory.isEmpty()) {
             return 0;
         }

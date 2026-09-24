@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -34,6 +35,8 @@ public class ChatApplicationService {
     private final ConversationRepository conversationRepository;
     private final Executor memorySummaryExecutor;
     private final RagContextService ragContextService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     public ChatApplicationService(ChatModelService chatModel,
                                   MemoryService memoryService,
@@ -87,8 +90,9 @@ public class ChatApplicationService {
 
             if (complexity == TaskComplexity.COMPLEX && reActEngine.isEnabled()) {
                 log.info("Using ReAct engine for complex task");
-                response = executeReAct(message, kbId, memoryContext, summary);
-                sources = List.of();
+                ReActOutcome outcome = executeReAct(message, kbId, memoryContext, summary);
+                response = outcome.answer();
+                sources = outcome.sources();
             } else {
                 log.info("Using simple RAG flow");
                 sources = performSimpleFlow(message, kbId, memoryContext);
@@ -103,7 +107,8 @@ public class ChatApplicationService {
 
             if (conversationId != null && userId != null) {
                 memoryService.addMessage(userId, conversationId, "user", message);
-                memoryService.addMessage(userId, conversationId, "assistant", response);
+                memoryService.addMessage(userId, conversationId, "assistant", response,
+                        serializeSources(sources));
 
                 String title = message.length() > 30 ? message.substring(0, 30) : message;
                 Optional<Conversation> existing = conversationRepository.findByConversationId(conversationId);
@@ -126,17 +131,52 @@ public class ChatApplicationService {
         }
     }
 
-    private String executeReAct(String message, String kbId, String memoryContext, String summary) {
+    /**
+     * ReAct 分支执行：
+     * - 正常完成：聚合 RETRIEVE_KNOWLEDGE 动作携带的检索命中作为 sources（引用溯源）
+     * - 降级：回退到真实 RAG 链路重新作答（此前把"执行摘要+降级原因"直接当用户答案返回）
+     */
+    private ReActOutcome executeReAct(String message, String kbId, String memoryContext, String summary) {
         ReActContext context = new ReActContext(message, memoryContext, summary);
         ReActResult result = reActEngine.execute(message, kbId, context);
 
-        if (result.isDegraded()) {
-            log.info("ReAct degraded, using fallback response");
-            return result.getAnswer();
+        if (!result.isDegraded()) {
+            return new ReActOutcome(result.getAnswer(), collectReActSources(result));
         }
 
-        return result.getAnswer();
+        log.info("ReAct degraded ({}), falling back to simple RAG flow", result.getDegradeReason());
+        List<RetrievalApplicationService.RetrievalResult> fallbackSources =
+                performSimpleFlow(message, kbId, memoryContext);
+        String answer = fallbackSources.isEmpty() ? null
+                : buildSimpleResponse(message, kbId, memoryContext, fallbackSources);
+        return new ReActOutcome(answer, fallbackSources);
     }
+
+    /** 从 ReAct 执行历史聚合检索命中（按 chunkId 去重，取前 5 条） */
+    private List<RetrievalApplicationService.RetrievalResult> collectReActSources(ReActResult result) {
+        if (result.getActionHistory() == null) {
+            return List.of();
+        }
+        java.util.LinkedHashMap<String, RetrievalApplicationService.RetrievalResult> dedup = new java.util.LinkedHashMap<>();
+        for (ReActResult.ActionRecord record : result.getActionHistory()) {
+            if (record.getResult() != null && record.getResult().getSources() != null) {
+                for (Object s : record.getResult().getSources()) {
+                    if (s instanceof RetrievalApplicationService.RetrievalResult r
+                            && !dedup.containsKey(r.chunkId())) {
+                        dedup.put(r.chunkId(), r);
+                    }
+                }
+            }
+            if (dedup.size() >= 5) break;
+        }
+        return List.copyOf(dedup.values());
+    }
+
+    /** ReAct 分支结果：answer 可为 null（由外层兜底链路处理），sources 用于引用溯源 */
+    private record ReActOutcome(
+            String answer,
+            List<RetrievalApplicationService.RetrievalResult> sources
+    ) {}
 
     private List<RetrievalApplicationService.RetrievalResult> performSimpleFlow(String message, String kbId, String memoryContext) {
         IntentClassifier.IntentResult intentResult = intentClassifier.classify(message);
@@ -220,6 +260,23 @@ public class ChatApplicationService {
      * @param intent 识别的意图
      * @param conversationId 对话 ID
      */
+    /** 检索命中 → JSON 数组持久化（空列表返回 null） */
+    private String serializeSources(List<RetrievalApplicationService.RetrievalResult> sources) {
+        if (sources == null || sources.isEmpty()) return null;
+        try {
+            List<Map<String, Object>> simplified = sources.stream()
+                    .map(s -> Map.<String, Object>of(
+                            "chunkId", s.chunkId(),
+                            "content", s.content() != null && s.content().length() > 200
+                                    ? s.content().substring(0, 200) + "…" : s.content(),
+                            "score", s.score()))
+                    .toList();
+            return objectMapper.writeValueAsString(simplified);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public record ChatResponse(
             String message,
             List<RetrievalApplicationService.RetrievalResult> sources,

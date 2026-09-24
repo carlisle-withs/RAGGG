@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Brain, ChevronDown } from "lucide-react";
+import { BookOpen, Brain, ChevronDown } from "lucide-react";
 
 import { FeedbackButtons } from "@/components/chat/FeedbackButtons";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -21,9 +21,12 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
     !message.id.startsWith("assistant-");
   const isThinking = Boolean(message.isThinking);
   const [thinkingExpanded, setThinkingExpanded] = React.useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = React.useState(false);
   const hasThinking = Boolean(message.thinking && message.thinking.trim().length > 0);
   const hasContent = message.content.trim().length > 0;
   const isWaiting = message.status === "streaming" && !isThinking && !hasContent;
+  const sources = message.sources ?? [];
+  const showSources = message.role === "assistant" && message.status !== "streaming" && sources.length > 0;
 
   if (isUser) {
     return (
@@ -89,6 +92,48 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
           {hasContent ? <MarkdownRenderer content={message.content} /> : null}
           {message.status === "error" ? (
             <p className="text-xs text-rose-500">生成已中断。</p>
+          ) : null}
+          {showSources ? (
+            <div className="overflow-hidden rounded-lg border border-border bg-muted/50">
+              <button
+                type="button"
+                onClick={() => setSourcesExpanded((prev) => !prev)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-muted"
+              >
+                <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1 text-xs font-medium text-muted-foreground">
+                  引用来源 · {sources.length} 条检索命中
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                    sourcesExpanded && "rotate-180"
+                  )}
+                />
+              </button>
+              {sourcesExpanded ? (
+                <ol className="space-y-2 border-t border-border px-4 pb-3 pt-3">
+                  {sources.map((source, index) => (
+                    <li
+                      key={`${source.chunkId}-${index}`}
+                      className="rounded-md border border-border bg-background px-3 py-2"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          #{index + 1} {source.chunkId}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                          {(source.score ?? 0).toFixed(4)}
+                        </span>
+                      </div>
+                      <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+                        {source.content}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+            </div>
           ) : null}
           {showFeedback ? (
             <FeedbackButtons

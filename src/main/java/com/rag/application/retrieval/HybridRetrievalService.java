@@ -134,6 +134,7 @@ public class HybridRetrievalService {
 
             FusionDoc doc = fusionMap.computeIfAbsent(chunkId, id -> new FusionDoc(chunkId, r.getContent()));
             doc.addScore("milvus", rrfScore, vectorScore);
+            doc.mergeMetadata(r.getMetadata());
         }
 
         // 处理 ES 结果
@@ -145,6 +146,7 @@ public class HybridRetrievalService {
 
             FusionDoc doc = fusionMap.computeIfAbsent(chunkId, id -> new FusionDoc(chunkId, r.getContent()));
             doc.addScore("es", rrfScore, textScore);
+            doc.mergeMetadata(r.getMetadata());
         }
 
         // 按 RRF 总分排序，返回全部（由调用方限制）
@@ -154,7 +156,8 @@ public class HybridRetrievalService {
                         doc.chunkId,
                         doc.content,
                         doc.getRrfScore(),
-                        doc.getRrfScore()  // relevance 与 score 相同
+                        doc.getRrfScore(),  // relevance 与 score 相同
+                        doc.metadata
                 ))
                 .collect(Collectors.toList());
     }
@@ -169,6 +172,8 @@ public class HybridRetrievalService {
         double esRrfScore = 0;
         double milvusVectorScore = 0;
         double esTextScore = 0;
+        /** 双路召回携带的 chunk 元数据（chunkLevel/parentChunkId/windowContent 等，SWA 依赖） */
+        Map<String, String> metadata = new HashMap<>();
 
         FusionDoc(String chunkId, String content) {
             this.chunkId = chunkId;
@@ -185,13 +190,29 @@ public class HybridRetrievalService {
             }
         }
 
+        void mergeMetadata(Map<String, String> meta) {
+            if (meta != null && !meta.isEmpty() && this.metadata.isEmpty()) {
+                this.metadata = new HashMap<>(meta);
+            }
+        }
+
         double getRrfScore() {
             return milvusRrfScore + esRrfScore;
         }
     }
 
     /**
-     * 检索结果 record
+     * 检索结果 record。
+     * metadata 携带分块期写入的元数据（chunkLevel/parentChunkId/siblingCount/windowContent），
+     * 是层级检索（SWA）Auto-Merging 与 Sentence Window 的数据通路——此前该字段缺失导致
+     * HierarchicalRetrievalService 拿到的 metadata 恒为空，SWA 端到端失效。
      */
-    public record RetrievalResult(String chunkId, String content, double score, double relevance) {}
+    public record RetrievalResult(String chunkId, String content, double score, double relevance,
+                                  Map<String, String> metadata) {
+
+        /** 兼容无元数据场景的构造（metadata 置空 Map） */
+        public RetrievalResult(String chunkId, String content, double score, double relevance) {
+            this(chunkId, content, score, relevance, new HashMap<>());
+        }
+    }
 }

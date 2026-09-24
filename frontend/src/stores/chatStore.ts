@@ -193,6 +193,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isDeepThinking: Boolean(item.thinkingContent),
         createdAt: item.createTime,
         feedback: mapVoteToFeedback(item.vote),
+        sources: (item.sources && item.sources.length > 0 ? item.sources : undefined) as
+          | import("@/types").CitationSource[]
+          | undefined,
         status: "done"
       }));
       set({ messages: mapped });
@@ -300,6 +303,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             get().appendStreamContent(parsed.delta);
           } else if (parsed.type === "meta" && parsed.conversationId) {
             nextConvId = parsed.conversationId;
+          } else if (parsed.type === "finish" && Array.isArray(parsed.sources) && parsed.sources.length > 0) {
+            // RAG 引用溯源：finish 事件携带检索命中，挂到当前流式消息上
+            const sources = parsed.sources as import("@/types").CitationSource[];
+            set((state) => ({
+              messages: state.messages.map((msg) =>
+                msg.id === assistantId ? { ...msg, sources } : msg
+              )
+            }));
           }
         } catch { /* skip unparseable */ }
       };

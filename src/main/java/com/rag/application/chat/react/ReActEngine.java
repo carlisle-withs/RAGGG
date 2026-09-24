@@ -42,7 +42,7 @@ public class ReActEngine {
         }
 
         log.info("Starting ReAct execution for query: {}", truncate(query));
-        loopDetector.reset();
+        LoopDetector.ExecutionState loopState = loopDetector.newState();
 
         List<ReActResult.ActionRecord> history = new ArrayList<>();
         int maxIterations = reactConfig.getLoopDetection().getMaxIterations();
@@ -90,7 +90,7 @@ public class ReActEngine {
                         suggestedAction.getType(), result.getErrorMessage());
             }
 
-            LoopDetectionResult loopCheck = loopDetector.detect(suggestedAction, result);
+            LoopDetectionResult loopCheck = loopDetector.detect(loopState, suggestedAction, result);
 
             if (loopCheck.isLoop()) {
                 log.warn("Loop detected at iteration {}, degrading: fingerprint={}, matches={}",
@@ -99,7 +99,7 @@ public class ReActEngine {
                         "检测到重复推理模式 (" + loopCheck.getConsecutiveMatchCount() + " 次相同)，切换到简单流程");
             }
 
-            if (loopDetector.isMaxIterationsReached()) {
+            if (loopDetector.isMaxIterationsReached(loopState)) {
                 log.warn("Max iterations reached at {}, degrading", i + 1);
                 return degradeToSimpleRag(query, context, history, "达到最大迭代次数 " + maxIterations + "，切换到简单流程");
             }

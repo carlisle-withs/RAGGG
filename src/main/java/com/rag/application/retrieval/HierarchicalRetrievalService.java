@@ -73,8 +73,10 @@ public class HierarchicalRetrievalService {
         List<HybridRetrievalService.RetrievalResult> milvusResults =
                 hybridRetrievalService.hybridSearch(query, kbId, topK * 3);
         // 转换为 HierarchicalRetrievalService.RetrievalResult
+        // 关键：透传 metadata（chunkLevel/parentChunkId/siblingCount/windowContent）——
+        // 此前走 4 参构造导致 metadata 恒空，Auto-Merging/Sentence Window 全部失效
         List<RetrievalResult> sentenceCandidates = milvusResults.stream()
-                .map(r -> new RetrievalResult(r.chunkId(), r.content(), r.score(), r.relevance()))
+                .map(r -> new RetrievalResult(r.chunkId(), r.content(), r.score(), r.relevance(), r.metadata()))
                 .collect(Collectors.toList());
         long step1Time = System.currentTimeMillis() - step1Start;
 

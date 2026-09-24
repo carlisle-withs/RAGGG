@@ -476,9 +476,21 @@ public class AppConfig {
 
             public static class Database {
                 private boolean enabled = true;
+                /** 只读校验：非 SELECT/WITH 开头、含分号多语句、含写关键字均拒绝 */
+                private boolean readOnly = true;
+                /** 表白名单（小写，空 = 不限制表）；建议只放业务只读表，排除 t_user 等敏感表 */
+                private java.util.List<String> allowedTables = java.util.List.of();
+                /** 查询行数上限 */
+                private int maxRows = 100;
 
                 public boolean isEnabled() { return enabled; }
                 public void setEnabled(boolean enabled) { this.enabled = enabled; }
+                public boolean isReadOnly() { return readOnly; }
+                public void setReadOnly(boolean readOnly) { this.readOnly = readOnly; }
+                public java.util.List<String> getAllowedTables() { return allowedTables; }
+                public void setAllowedTables(java.util.List<String> allowedTables) { this.allowedTables = allowedTables; }
+                public int getMaxRows() { return maxRows; }
+                public void setMaxRows(int maxRows) { this.maxRows = maxRows; }
             }
 
             public static class Conversation {
@@ -502,6 +514,10 @@ public class AppConfig {
         public static class Cache {
             private boolean enabled = true;
             private SimilarityThreshold similarityThreshold = new SimilarityThreshold();
+            /** 缓存条目 TTL（毫秒，0 = 不过期），默认 1 小时 */
+            private long ttlMs = 3_600_000L;
+            /** 缓存容量上限（<=0 视为无上限），默认 500 条 */
+            private int maxEntries = 500;
 
             public static class SimilarityThreshold {
                 private float directHit = 0.95f;
@@ -517,6 +533,10 @@ public class AppConfig {
             public void setEnabled(boolean enabled) { this.enabled = enabled; }
             public SimilarityThreshold getSimilarityThreshold() { return similarityThreshold; }
             public void setSimilarityThreshold(SimilarityThreshold similarityThreshold) { this.similarityThreshold = similarityThreshold; }
+            public long getTtlMs() { return ttlMs; }
+            public void setTtlMs(long ttlMs) { this.ttlMs = ttlMs; }
+            public int getMaxEntries() { return maxEntries; }
+            public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
         }
 
         public static class LoopDetection {

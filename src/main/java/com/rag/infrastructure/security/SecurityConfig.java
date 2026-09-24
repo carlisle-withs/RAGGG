@@ -47,6 +47,15 @@ public class SecurityConfig {
                 })
             )
             .authorizeHttpRequests(auth -> auth
+                // 认证端点公开：登录/注册/刷新
+                .requestMatchers("/api/v1/auth/**").permitAll()
+                // 监控端点公开：Prometheus 抓取不携带 JWT（生产环境建议改 Basic 或内网隔离）
+                .requestMatchers("/actuator/**").permitAll()
+                // 管理端点仅 ADMIN
+                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                // 其余全部 API 必须认证（JWT Bearer）
+                .requestMatchers("/api/**").authenticated()
+                // 静态资源与 SPA 回退页面公开（页面壳公开，数据均来自上述已保护 API）
                 .anyRequest().permitAll()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

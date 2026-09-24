@@ -82,13 +82,11 @@ public class ParseService {
         this.textLengthSummary = DistributionSummary.builder("doc.pipeline.text_length").description("解析后文本长度分布").baseUnit("chars").register(meterRegistry);
     }
 
+    /** 监听方法直接标注 @Transactional：@KafkaListener 由容器经 Spring 代理调用，事务真实生效
+     *  （此前 this.doProcess() 自调用绕过代理，@Transactional 形同虚设）。 */
     @KafkaListener(topics = KafkaTopics.DOCUMENT_UPLOAD, groupId = "${spring.kafka.consumer.group-id}-parse")
-    public void consume(String message) {
-        doProcess(message);
-    }
-
     @Transactional
-    public void doProcess(String message) {
+    public void consume(String message) {
         long t0 = System.nanoTime();
         try {
             DocumentEvent event = objectMapper.readValue(message, DocumentEvent.class);

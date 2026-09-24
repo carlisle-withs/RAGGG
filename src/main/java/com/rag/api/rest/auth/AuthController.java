@@ -93,6 +93,11 @@ public class AuthController {
                     .body(new ErrorResponse("INVALID_TOKEN", "Invalid or expired refresh token"));
         }
 
+        if (!jwtUtils.isRefreshToken(refreshToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("INVALID_TOKEN", "Not a refresh token"));
+        }
+
         String username = jwtUtils.extractUsername(refreshToken);
         Optional<User> userOpt = userRepository.findByUsername(username);
 

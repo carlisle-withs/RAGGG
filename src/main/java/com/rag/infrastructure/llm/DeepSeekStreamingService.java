@@ -72,6 +72,7 @@ public class DeepSeekStreamingService {
             }
 
             StringBuilder prompt = new StringBuilder();
+            List<Map<String, Object>> sources = List.of();
             if (kbId != null && !kbId.isEmpty()) {
                 try {
                     // 统一检索管线：指代消解 + 查询扩展 + 混合检索 + 上下文拼装
@@ -81,6 +82,13 @@ public class DeepSeekStreamingService {
                         prompt.append("请基于以下参考文档回答用户问题。\n\n")
                               .append("【参考文档】\n").append(ragContext.contextText()).append("\n\n");
                     }
+                    // 引用溯源：检索命中随 finish 事件下发（内容截断，仅作展示）
+                    sources = ragContext.sources().stream()
+                            .map(s -> Map.<String, Object>of(
+                                    "chunkId", s.chunkId(),
+                                    "content", truncateForCitation(s.content(), 200),
+                                    "score", s.score()))
+                            .toList();
                 } catch (Exception e) {
                     log.warn("Retrieval failed for streaming", e);
                 }
@@ -146,10 +154,22 @@ public class DeepSeekStreamingService {
 
             if (conversationId != null && userId != null) {
                 memoryService.addMessage(userId, conversationId, "user", userMessage);
-                memoryService.addMessage(userId, conversationId, "assistant", fullResponse.toString());
+                // 引用来源随 assistant 消息持久化（历史会话可回显引用）
+                String sourcesJson = null;
+                if (!sources.isEmpty()) {
+                    try {
+                        sourcesJson = objectMapper.writeValueAsString(sources);
+                    } catch (Exception ignore) { sourcesJson = null; }
+                }
+                memoryService.addMessage(userId, conversationId, "assistant", fullResponse.toString(), sourcesJson);
             }
 
-            send(emitter, jsonObj(Map.of("type", "finish", "conversationId", convId, "fullLength", fullResponse.length())));
+            Map<String, Object> finishPayload = new java.util.HashMap<>();
+            finishPayload.put("type", "finish");
+            finishPayload.put("conversationId", convId);
+            finishPayload.put("fullLength", fullResponse.length());
+            finishPayload.put("sources", sources);
+            send(emitter, jsonObj(finishPayload));
             emitter.complete();
 
         } catch (Exception e) {
@@ -175,5 +195,10 @@ public class DeepSeekStreamingService {
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    private String truncateForCitation(String content, int maxChars) {
+        if (content == null) return "";
+        return content.length() <= maxChars ? content : content.substring(0, maxChars) + "…";
     }
 }

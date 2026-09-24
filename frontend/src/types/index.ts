@@ -20,6 +20,12 @@ export interface Session {
   lastTime?: string;
 }
 
+export interface CitationSource {
+  chunkId: string;
+  content: string;
+  score: number;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -31,6 +37,8 @@ export interface Message {
   createdAt?: string;
   feedback?: FeedbackValue;
   status?: MessageStatus;
+  /** RAG 检索引用来源（流式 finish 事件携带） */
+  sources?: CitationSource[];
 }
 
 export interface StreamMetaPayload {

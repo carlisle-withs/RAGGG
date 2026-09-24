@@ -96,13 +96,14 @@ public class IndexService {
         log.info("IndexService initialized: embeddingBatchSize={}", embeddingBatchSize);
     }
 
+    /**
+     * 监听方法直接标注 @Transactional：@KafkaListener 由容器通过 Spring 代理调用，
+     * 事务真实生效。此前 consume() 内 this.doProcess() 自调用绕过代理，事务形同虚设，
+     * 导致 MySQL 成功而 ES/Milvus 失败时状态与数据不一致。
+     */
     @KafkaListener(topics = KafkaTopics.DOCUMENT_CHUNKED, groupId = "${spring.kafka.consumer.group-id}-index")
-    public void consume(String message) {
-        doProcess(message);
-    }
-
     @Transactional
-    public void doProcess(String message) {
+    public void consume(String message) {
         long t0 = System.nanoTime();
         Long documentId = null;
         try {
@@ -166,10 +167,16 @@ public class IndexService {
                 processBatch(batch, docId, docKbId, tracer, successCount, failCount);
             }
 
-            // ---- 无 chunks 时（MinIO 不可用或文档为空） ----
+            // ---- 无 chunks 时（文档为空或 chunks.json 损坏）----
             if (successCount[0] == 0 && failCount[0] == 0) {
                 tracer.warn("No chunks found for document: {} (chunksMinioPath={})", documentId, chunksMinioPath);
                 indexSkipCounter.increment();
+                // 置 FAILED 终态：此前直接 return 导致状态永远停留在 INDEXING
+                documentRepository.findById(documentId).ifPresent(d -> {
+                    d.setStatus(KnowledgeDocument.DocumentStatus.FAILED);
+                    documentRepository.save(d);
+                });
+                indexFailureCounter.increment();
                 fullIndexTimer.record(System.nanoTime() - t0, TimeUnit.NANOSECONDS);
                 return;
             }

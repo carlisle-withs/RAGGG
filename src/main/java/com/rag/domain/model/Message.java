@@ -26,6 +26,10 @@ public class Message {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    /** RAG 引用来源（JSON 数组：[{chunkId, content, score}]，仅 assistant 消息使用） */
+    @Column(columnDefinition = "TEXT")
+    private String sources;
+
     @Column(name = "create_time")
     private LocalDateTime createTime;
 
@@ -39,10 +43,15 @@ public class Message {
     }
 
     public Message(String conversationId, String userId, String role, String content) {
+        this(conversationId, userId, role, content, null);
+    }
+
+    public Message(String conversationId, String userId, String role, String content, String sources) {
         this.conversationId = conversationId;
         this.userId = userId;
         this.role = role;
         this.content = content;
+        this.sources = sources;
     }
 
     @PrePersist
@@ -71,6 +80,8 @@ public class Message {
     public void setRole(String role) { this.role = role; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getSources() { return sources; }
+    public void setSources(String sources) { this.sources = sources; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }

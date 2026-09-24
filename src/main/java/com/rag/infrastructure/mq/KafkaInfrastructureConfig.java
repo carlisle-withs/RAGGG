@@ -10,7 +10,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import static org.springframework.kafka.listener.ContainerProperties.AckMode.BATCH;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -45,6 +47,15 @@ public class KafkaInfrastructureConfig {
         factory.setConsumerFactory(consumerFactory());
         factory.setConcurrency(3);
         factory.getContainerProperties().setAckMode(BATCH);
+        // 基础设施级异常（反序列化/Kafka 客户端错误）重试 2 次、间隔 1s；
+        // 业务失败由各消费者自行置 FAILED（终态），不走此通道
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(
+                new FixedBackOff(1000L, 2L));
+        errorHandler.setRetryListeners((record, ex, attempt) ->
+                org.slf4j.LoggerFactory.getLogger("kafka.retry")
+                        .warn("Kafka record retry: topic={}, attempt={}, error={}",
+                                record.topic(), attempt, ex.getMessage()));
+        factory.setCommonErrorHandler(errorHandler);
         return factory;
     }
 

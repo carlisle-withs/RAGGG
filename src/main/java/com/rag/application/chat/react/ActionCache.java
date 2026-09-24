@@ -44,15 +44,17 @@ public class ActionCache {
             return result;
         }
 
+        evictIfNeeded();
+
         String cacheKey = action.getCacheKey();
         CacheEntry existing = cache.get(cacheKey);
 
-        if (existing != null) {
+        if (existing != null && !existing.isExpired()) {
             log.debug("Cache hit for key: {}", cacheKey);
             return existing.result;
         }
 
-        cache.put(cacheKey, new CacheEntry(action, result));
+        cache.put(cacheKey, new CacheEntry(action, result, reactConfig.getCache().getTtlMs()));
         return result;
     }
 
@@ -65,8 +67,12 @@ public class ActionCache {
         CacheEntry existing = cache.get(cacheKey);
 
         if (existing != null) {
-            log.info("Cache hit for action: type={}", action.getType());
-            return existing.result;
+            if (existing.isExpired()) {
+                cache.remove(cacheKey);
+            } else {
+                log.info("Cache hit for action: type={}", action.getType());
+                return existing.result;
+            }
         }
 
         float similarity = findMostSimilarAction(action);
@@ -205,6 +211,28 @@ public class ActionCache {
         return (float) (dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)));
     }
 
+    /** 容量上限：超出时按写入时间淘汰最旧条目（此前无上限，长期运行内存只涨不跌） */
+    private void evictIfNeeded() {
+        int maxEntries = reactConfig.getCache().getMaxEntries();
+        if (maxEntries <= 0 || cache.size() <= maxEntries) {
+            return;
+        }
+
+        // 先清过期
+        cache.values().removeIf(CacheEntry::isExpired);
+        while (cache.size() > maxEntries) {
+            CacheEntry oldest = null;
+            for (CacheEntry entry : cache.values()) {
+                if (oldest == null || entry.createdAt < oldest.createdAt) {
+                    oldest = entry;
+                }
+            }
+            if (oldest == null) break;
+            cache.remove(oldest.action.getCacheKey());
+        }
+        log.debug("ActionCache evicted to {} entries (max={})", cache.size(), maxEntries);
+    }
+
     public void clear() {
         cache.clear();
         log.info("ActionCache cleared");
@@ -218,10 +246,17 @@ public class ActionCache {
         Action action;
         ActionResult result;
         float[] embedding;
+        final long createdAt = System.currentTimeMillis();
+        final long ttlMs;
 
-        CacheEntry(Action action, ActionResult result) {
+        CacheEntry(Action action, ActionResult result, long ttlMs) {
             this.action = action;
             this.result = result;
+            this.ttlMs = ttlMs;
+        }
+
+        boolean isExpired() {
+            return ttlMs > 0 && System.currentTimeMillis() - createdAt > ttlMs;
         }
     }
 }

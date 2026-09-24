@@ -2,6 +2,8 @@ package com.rag.infrastructure.vector;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rag.config.AppConfig;
 import com.rag.domain.model.Chunk;
 import io.milvus.v2.client.MilvusClientV2;
@@ -40,6 +42,10 @@ public class MilvusVectorStore {
     private MilvusClientV2 milvusClient;
     private final String collectionName;
     private final int dimension;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final TypeReference<Map<String, String>> METADATA_TYPE = new TypeReference<>() {};
+
+    public static final String METADATA_FIELD = "metadata";
 
     public MilvusVectorStore(ObjectProvider<Supplier<MilvusClientV2>> milvusClientSupplierProvider, AppConfig appConfig) {
         this.milvusClientSupplier = milvusClientSupplierProvider.getObject();
@@ -70,12 +76,20 @@ public class MilvusVectorStore {
             } else {
                 // 维度校验：如果已有 Collection 维度与配置不符，自动重建
                 int existingDim = getExistingCollectionDimension();
+                boolean hasMetadataField = existingCollectionHasMetadataField();
                 if (existingDim > 0 && existingDim != dimension) {
                     log.warn("Collection dimension mismatch! configured={}, existing={} — dropping and recreating...",
                             dimension, existingDim);
                     dropCollection();
                     createCollection();
                     log.info("Collection recreated with correct dimension: {}", dimension);
+                } else if (!hasMetadataField) {
+                    // 旧 schema 无 metadata 字段：层级检索（SWA）需要该字段承载父子关系/句窗内容。
+                    // 重建会清空已索引向量，需重灌语料（与维度变更同款处理）。
+                    log.warn("Collection lacks '{}' field (pre-SWA schema) — dropping and recreating; "
+                            + "existing vectors are LOST and documents must be re-ingested!", METADATA_FIELD);
+                    dropCollection();
+                    createCollection();
                 } else {
                     // Ensure collection is loaded
                     milvusClient().loadCollection(
@@ -112,6 +126,21 @@ public class MilvusVectorStore {
             log.debug("Could not get existing collection dimension via query: {}", e.getMessage());
         }
         return -1;
+    }
+
+    /** 检查已有集合是否包含 metadata 字段（SWA 数据通路，旧 schema 无此字段） */
+    private boolean existingCollectionHasMetadataField() {
+        try {
+            var desc = milvusClient().describeCollection(
+                    io.milvus.v2.service.collection.request.DescribeCollectionReq.builder()
+                            .collectionName(collectionName)
+                            .build()
+            );
+            return desc.getFieldNames() != null && desc.getFieldNames().contains(METADATA_FIELD);
+        } catch (Exception e) {
+            log.debug("Could not describe collection schema: {}", e.getMessage());
+            return true; // 探测失败时不触发重建，避免误删
+        }
     }
 
     private void dropCollection() {
@@ -187,6 +216,16 @@ public class MilvusVectorStore {
                         .build()
         );
 
+        // metadata field（JSON 序列化的 Map<String,String>）：
+        // 承载 chunkLevel/parentChunkId/siblingCount/windowContent，层级检索（SWA）的数据通路
+        fieldSchemaList.add(
+                CreateCollectionReq.FieldSchema.builder()
+                        .name(METADATA_FIELD)
+                        .dataType(DataType.VarChar)
+                        .maxLength(65535)
+                        .build()
+        );
+
         CreateCollectionReq.CollectionSchema collectionSchema = CreateCollectionReq.CollectionSchema
                 .builder()
                 .fieldSchemaList(fieldSchemaList)
@@ -236,6 +275,7 @@ public class MilvusVectorStore {
             row.addProperty("content", chunk.getContent());
             row.add("embedding", toJsonArray(embedding));
             row.addProperty("kb_id", chunk.getKbId() != null ? chunk.getKbId() : "");
+            row.addProperty(METADATA_FIELD, serializeMetadata(chunk.getMetadata()));
 
             InsertReq req = InsertReq.builder()
                     .collectionName(collectionName)
@@ -276,6 +316,7 @@ public class MilvusVectorStore {
                 row.addProperty("content", content);
                 row.add("embedding", toJsonArray(embedding));
                 row.addProperty("kb_id", chunk.getKbId() != null ? chunk.getKbId() : "");
+                row.addProperty(METADATA_FIELD, serializeMetadata(chunk.getMetadata()));
                 rows.add(row);
             }
             InsertReq req = InsertReq.builder()
@@ -311,7 +352,7 @@ public class MilvusVectorStore {
                     .data(vectors)
                     .topK(topK)
                     .searchParams(params)
-                    .outputFields(List.of("doc_id", "chunk_id", "content"));
+                    .outputFields(List.of("doc_id", "chunk_id", "content", METADATA_FIELD));
 
             if (kbId != null && !kbId.isEmpty()) {
                 searchBuilder.filter("kb_id == \"" + kbId + "\"");
@@ -325,15 +366,17 @@ public class MilvusVectorStore {
             }
 
             List<SearchResult> searchResults = new ArrayList<>();
-            int i = 0;
             for (SearchResp.SearchResult r : results.get(0)) {
                 Map<String, Object> entity = r.getEntity();
                 SearchResult result = new SearchResult();
                 result.setChunkId(entity.get("chunk_id") != null ? entity.get("chunk_id").toString() : "");
                 result.setContent(entity.get("content") != null ? entity.get("content").toString() : "");
                 result.setScore(r.getScore());
+                Object meta = entity.get(METADATA_FIELD);
+                if (meta != null && !meta.toString().isBlank()) {
+                    result.setMetadata(deserializeMetadata(meta.toString()));
+                }
                 searchResults.add(result);
-                i++;
             }
 
             return searchResults;
@@ -341,6 +384,26 @@ public class MilvusVectorStore {
         } catch (Exception e) {
             log.error("Search failed", e);
             return Collections.emptyList();
+        }
+    }
+
+    static String serializeMetadata(Map<String, String> metadata) {
+        if (metadata == null || metadata.isEmpty()) return "{}";
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (Exception e) {
+            log.warn("Failed to serialize chunk metadata: {}", e.getMessage());
+            return "{}";
+        }
+    }
+
+    static Map<String, String> deserializeMetadata(String json) {
+        try {
+            Map<String, String> m = objectMapper.readValue(json, METADATA_TYPE);
+            return m != null ? m : new HashMap<>();
+        } catch (Exception e) {
+            log.debug("Failed to deserialize chunk metadata: {}", e.getMessage());
+            return new HashMap<>();
         }
     }
 
@@ -356,6 +419,7 @@ public class MilvusVectorStore {
         private String chunkId;
         private String content;
         private double score;
+        private Map<String, String> metadata = new HashMap<>();
 
         public String getChunkId() { return chunkId; }
         public void setChunkId(String chunkId) { this.chunkId = chunkId; }
@@ -363,5 +427,9 @@ public class MilvusVectorStore {
         public void setContent(String content) { this.content = content; }
         public double getScore() { return score; }
         public void setScore(double score) { this.score = score; }
+        public Map<String, String> getMetadata() { return metadata; }
+        public void setMetadata(Map<String, String> metadata) {
+            this.metadata = metadata != null ? metadata : new HashMap<>();
+        }
     }
 }

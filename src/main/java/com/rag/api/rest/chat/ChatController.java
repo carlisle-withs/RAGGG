@@ -89,6 +89,12 @@ public class ChatController {
                 ? request.kbIds().get(0)
                 : null;
 
+        // 与同步 /chat 对齐的 KB 权限检查（此前流式链路缺失，known-gaps #security）
+        if (kbId != null && !hasKbAccess(kbId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "No access to knowledge base " + kbId);
+        }
+
         User currentUser = getCurrentUser();
         String userId = currentUser != null ? currentUser.getId().toString() : null;
 
@@ -100,8 +106,8 @@ public class ChatController {
         if (isAdmin()) return true;
         User currentUser = getCurrentUser();
         if (currentUser == null) {
-            // 匿名用户允许访问（知识库本身对匿名用户开放）
-            return true;
+            // SecurityConfig 已要求 /api/** 认证，此处仅为防御性兜底
+            return false;
         }
         try {
             Long id = Long.parseLong(kbId);

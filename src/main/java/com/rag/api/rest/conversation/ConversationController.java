@@ -30,15 +30,18 @@ public class ConversationController {
     private final MessageRepository messageRepository;
     private final MessageFeedbackRepository feedbackRepository;
     private final MemoryService memoryService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public ConversationController(ConversationRepository conversationRepository,
                                    MessageRepository messageRepository,
                                    MessageFeedbackRepository feedbackRepository,
-                                   MemoryService memoryService) {
+                                   MemoryService memoryService,
+                                   com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.feedbackRepository = feedbackRepository;
         this.memoryService = memoryService;
+        this.objectMapper = objectMapper;
     }
 
     public record ConversationVO(
@@ -46,6 +49,17 @@ public class ConversationController {
             String title,
             String lastTime
     ) {}
+
+    /** t_message.sources JSON 数组 → 列表（坏数据返回 null） */
+    private List<Map<String, Object>> parseSources(String sourcesJson) {
+        if (sourcesJson == null || sourcesJson.isBlank()) return null;
+        try {
+            return objectMapper.readValue(sourcesJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public record MessageVO(
             Object id,
@@ -55,7 +69,8 @@ public class ConversationController {
             Object thinkingContent,
             Object thinkingDuration,
             Object vote,
-            String createTime
+            String createTime,
+            List<Map<String, Object>> sources
     ) {}
 
     @GetMapping
@@ -111,18 +126,29 @@ public class ConversationController {
         String userId = getCurrentUserId();
         List<MessageVO> result = new ArrayList<>();
 
-        // 先从 Redis 获取最近的消息（快速路径）
+        // 先从 Redis 获取最近的消息（快速路径）；sources 不进 Redis 窗口，按消息 id 从 MySQL 批量补齐
         if (userId != null) {
             MemoryService.ConversationContext ctx = memoryService.getContext(userId, conversationId);
+            List<Long> ids = new ArrayList<>();
+            for (MemoryService.Message memMsg : ctx.recentMessages()) {
+                if (memMsg.id() != null) ids.add(memMsg.id());
+            }
+            Map<Long, String> sourcesById = new HashMap<>();
+            if (!ids.isEmpty()) {
+                for (Message m : messageRepository.findAllById(ids)) {
+                    if (m.getSources() != null) sourcesById.put(m.getId(), m.getSources());
+                }
+            }
             for (MemoryService.Message memMsg : ctx.recentMessages()) {
                 if (memMsg.content().equals("[早期对话已摘要]")) continue;
                 result.add(new MessageVO(
-                        UUID.randomUUID().toString(),
+                        memMsg.id() != null ? memMsg.id() : UUID.randomUUID().toString(),
                         conversationId,
                         memMsg.role(),
                         memMsg.content(),
                         null, null, null,
-                        LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                        LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                        memMsg.id() != null ? parseSources(sourcesById.get(memMsg.id())) : null
                 ));
             }
         }
@@ -137,7 +163,8 @@ public class ConversationController {
                         msg.getRole().toLowerCase(),
                         msg.getContent(),
                         null, null, null,
-                        msg.getCreateTime() != null ? msg.getCreateTime().toString() : null
+                        msg.getCreateTime() != null ? msg.getCreateTime().toString() : null,
+                        parseSources(msg.getSources())
                 ));
             }
         }
