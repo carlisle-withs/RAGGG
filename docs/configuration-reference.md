@@ -1,0 +1,135 @@
+# 配置参考全集
+
+> **文档性质**：全部配置键的完整参考，2026-09-24 与代码对账（AppConfig @ConfigurationProperties + 各类 @Value + application.yml + config.yaml.example）。
+> 配置加载顺序：**config.yaml（根目录，gitignore）> application.yml 默认值 > 环境变量覆盖 > 代码内默认**。模板见 [config.yaml.example](../config.yaml.example)（react 段已同步修复）。
+
+## 一、config.yaml（自定义键，经 `spring.config.import: optional:file:./config.yaml` 加载）
+
+### 服务
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `server.ip` | localhost | **中间件地址汇聚点**——所有基础设施配置引用这一处 |
+| `app.host` | 0.0.0.0 | 服务监听地址 |
+| `app.port` | 8080 | 服务端口（无 config.yaml 时 application.yml 回落 **8081**） |
+
+### LLM
+
+| 键 | 说明 |
+|---|---|
+| `llm.provider` | 提供方标识（minimax 需要额外 group-id header） |
+| `llm.api-key` | **必填**；任意 OpenAI 兼容端点的 key |
+| `llm.model` | 模型名（如 deepseek-chat / glm-5.3-flash） |
+| `llm.base-url` | OpenAI 兼容 base（如 https://api.deepseek.com/v1） |
+| `llm.group-id` | MiniMax 专用 |
+| `llm.multimodal.enabled` | 多模态对话开关（需视觉模型，见 [06-multimodal](architecture/06-multimodal.md)） |
+| `llm.multimodal.vision.enabled` / `max-image-size-mb` | 视觉子开关 / 图片上限（20MB） |
+
+### Embedding（provider 二选一）
+
+| 键 | siliconflow 模式 | ollama 模式 |
+|---|---|---|
+| `embedding.provider` | `siliconflow` | `ollama` |
+| `embedding.model` | BAAI/bge-m3 | bge-m3（需 `docker exec rag-ollama ollama pull bge-m3`） |
+| `embedding.dimension` | 1024（**决定 Milvus 集合维度，变更即触发重建**） | 同左 |
+| `embedding.base-url` | https://api.siliconflow.cn/v1 | http://localhost:11434 |
+| `embedding.api-key` | 必填 | 不需要 |
+| `embedding.batch-size` | 32 | 攒批大小（Kafka 报告：本地单流 ~20 chunks/s 是摄入瓶颈） |
+
+### 重排
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `reranker.model` | BAAI/bge-reranker-v2-m3 | SiliconFlow /rerank |
+| `reranker.base-url` / `api-key` | - | **key 失效会静默回退未重排**（有 `rerank_fallback_total` 指标告警锚点） |
+| `reranker.enabled` | true | |
+
+### 基础设施
+
+| 键 | compose 默认 | 说明 |
+|---|---|---|
+| `milvus.uri` / `collection` | http://{ip}:29530 / rag_chunks | |
+| `elasticsearch.host/port/index` | {ip} / 29201 / rag_documents | |
+| `kafka.bootstrap-servers` | {ip}:29292 | advertised listener 含硬编码 IP，跨机部署需改 compose |
+| `mysql.host/port/database/username/password` | {ip} / 23306 / rag_system | |
+| `redis.host/port/database` | {ip} / 26379 / 0 | |
+| `minio.endpoint/access-key/secret-key/bucket` | http://{ip}:29005 / minioadmin×2 / rag-documents | |
+
+### 记忆 / 抽取
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `memory.window-size` | 10 | Redis 窗口失效后从 MySQL 回源重建条数 |
+| `memory.summary-threshold` | 8 | 摘要触发条数（辅助） |
+| `memory.trigger-tokens` | 2500 | 窗口 token 触发阈值（**主**，防单条长消息） |
+| `memory.context-max-tokens` | 3000 | 记忆上下文总预算（摘要+最近消息） |
+| `memory.ttl-days` | 7 | Redis TTL |
+| `extraction.enabled` | false | 阿里云 OCR + 表格解析（`extraction.*` 段：access-key/endpoint 等） |
+
+## 二、application.yml 运行时开关（环境变量可覆盖）
+
+### 检索
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `retrieval.strategy` | hybrid | `hybrid` / `hierarchical`（SWA） |
+| `retrieval.rerank.enabled` | true | |
+| `retrieval.rerank.provider` | siliconflow | 切本地则用 CrossEncoderReranker（Bi-Encoder 近似） |
+| `retrieval.final-topk` | 5 | |
+| `retrieval.swa.merging-ratio` | 0.5 | Auto-Merging 命中率阈值 |
+| `retrieval.swa.window-size` | 3 | Sentence Window 前后句数（分块期预生成 windowContent） |
+| `retrieval.candidate-pool-size` | 20 | 双路召回各取候选数（@Value 注入） |
+| `retrieval.context-max-tokens` | 4000 | **检索上下文 token 预算**（2026-09-24 新增，超预算按相关性截断） |
+
+### 分块
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `chunking.chunk-size` | 512 | 全局默认（注：ChunkStrategyFactory 当前未注入，实际上传参数才生效——known-gaps 🟢） |
+| `chunking.chunk-overlap` | 50 | 同上 |
+
+### Kafka / OTel
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `spring.kafka.consumer.group-id` | rag-system | 三个消费者组为 `{group-id}-parse/-chunk/-index` |
+| `spring.kafka.consumer.max-poll-records` | 1 | 配 max-poll-interval 30min 兜长解析 |
+| `spring.kafka.listener.concurrency` | 3 | |
+| `otel.enabled` | false | OpenTelemetry（OTLP → localhost:4317） |
+
+> ⚠️ 已知死配置：`kafka-topics.document-raw/document-chunked/document-indexed` 与代码实际 topic 名（`document-upload/parsed/chunked`）对不上，配置了也不生效（known-gaps 记录在案）。
+
+## 三、ReAct 引擎（`react.*`，config.yaml 段）
+
+完整语义见 [03-react-engine 第八节](architecture/03-react-engine.md)。要点：`enabled`（默认 false）、`router.model/timeout-ms`（5s）、`actions.database.read-only/allowed-tables/max-rows`（SQL 护栏，2026-09-24 新增）、`cache.ttl-ms/max-entries`（1h/500，新增）、`loop-detection.max-iterations/fingerprint-match-count`（5/3）、`lightweight-llm.*`。
+
+## 四、安全相关
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| JWT secret | application.yml `jwt.secret`（缺省走 JwtUtils 内置默认，**硬编码源码**） | 生产必须覆盖且 ≥32 字节（短 secret 会被零字节填充弱化） |
+| `jwt.expiration` | 86400000（24h） | access token |
+| refresh | 7 天（JwtUtils 常量） | refresh 端点校验 type claim |
+| 放行路径 | SecurityConfig 硬编码 | `/api/v1/auth/**`、`/actuator/**`、静态 SPA；`/api/v1/admin/**` 要求 ROLE_ADMIN |
+
+## 五、可观测性
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `management.endpoints.web.exposure.include` | health,info,prometheus,metrics | |
+| `management.metrics.distribution.percentiles` | [0.5,0.95,0.99] | 全指标直方图 |
+| `logging.level.com.rag` | DEBUG | 生产建议 INFO |
+| `knife4j.enable` | true | /doc.html 交互文档 |
+
+指标清单见 [01-architecture-overview 第八节](architecture/01-architecture-overview.md)（含 `rerank_fallback_total` / `kafka_produce_fail_total` 两个告警锚点）。
+
+## 六、配置常见坑
+
+| 症状 | 原因 |
+|---|---|
+| compose 起的服务连不上 | config.yaml 端口与 compose 映射不一致（3307/9200 系 vs 23306/29201 系）——以 compose 为准 |
+| Kafka 连上但收不到消息 | compose advertised IP 硬编码，非原机器需改 |
+| 启动后 Milvus 集合被清空重建 | embedding.dimension 变更或缺 metadata 字段（SWA 升级）——需重灌语料 |
+| 检索无结果 | ollama 模式未 pull bge-m3；或 kbId 过滤无数据 |
+| 排序无精排效果 | reranker key 失效静默回退——查 `rerank_fallback_total` 指标 |
+| 端口 8080 连不上 | 无 config.yaml，服务在 8081 |

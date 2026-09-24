@@ -1,0 +1,58 @@
+# 多模态能力
+
+> **文档性质**：视觉/多模态对话与文档增强的现状说明，2026-09-24 与代码对账。
+> 全部能力为 **opt-in**（默认关闭），需要支持视觉的模型。实验验证见 [multimodal-experiment-report](../testing/multimodal-experiment-report.md)。
+
+## 一、能力地图
+
+| 侧 | 开关 | 组件 | 能力 |
+|---|---|---|---|
+| 对话侧 | `llm.multimodal.enabled` | VisionChatController + MultimodalChatClient | 图像理解 / 图文混合对话 / 单图解析 |
+| 文档侧 | `extraction.enabled` | MultimodalDocumentEnhancer + 阿里云 OCR/表格解析 | 上传文档的图片 OCR 化、表格结构化、图像描述生成 |
+
+## 二、对话侧（VisionChatController）
+
+| 端点 | 功能 |
+|---|---|
+| `POST /api/v1/chat/vision` | 图像理解对话（imageBase64 + question，带 RAG 上下文） |
+| `POST /api/v1/chat/multimodal` | 图文混合多模态对话（多图 + 文本） |
+| `POST /api/v1/images/analyze` | 单图结构化解析（提取关键信息） |
+| `GET /api/v1/chat/multimodal/status` | 能力状态探测（前端据此显示/隐藏入口） |
+
+**底层（MultimodalChatClient）**：JDK HttpClient 调 OpenAI 兼容的 `/chat/completions`，构建 vision 格式 content 数组（`image_url` 自动判 URL vs `data:image/jpeg;base64,`）；connect 30s / request 120s；对 `finish_reason=length`、仅返回 reasoning_content 的情况打告警。
+
+**应用层（ImageUnderstandingService）**：
+- `analyzeImage`：上传图片存 MinIO → 视觉模型描述 → 结构化 ImageDescription
+- `visionQA`：图片 + 问题 + RAG 上下文 → 引用式回答
+- `generateDocumentImageDescriptions`：批量图像描述（文档增强用）
+
+子开关：`llm.multimodal.vision.enabled`（默认 true）、`max-image-size-mb`（20）、`video.enabled`（默认 false）。
+
+## 三、文档侧（MultimodalDocumentEnhancer + EnhancedContentProcessor）
+
+开启 `extraction.enabled` 后，Kafka 流水线的解析阶段走增强路径：
+
+```
+Tika 解析 → 提取内嵌图片 → 阿里云 OCR（图片文字化）
+          → 表格解析（HTML 结构化）
+          → 视觉模型生成图片描述（最多 10 张，拼进正文）
+          → parsed.txt（含图片描述与表格 HTML）
+```
+
+配置（config.yaml `extraction.*`）：provider（aliyun）、access-key/secret、endpoint、processing（parallel/max-concurrency=4/timeout=30s/retry=2）。
+
+**代价提示**：增强路径每篇文档增加多次 OCR/视觉模型调用——摄入吞吐显著低于普通路径（对照 [Kafka 吞吐报告](../testing/kafka-pipeline-throughput-report-2026-09-21.md) 的基线 16.5 docs/min，本地 embedding 已占 95.1% 耗时，叠加 OCR 会进一步拉长 Parse 阶段）。
+
+## 四、实验结论（已验证的能力边界）
+
+[multimodal-experiment-report](../testing/multimodal-experiment-report.md)（4 篇 arXiv 论文 66 图，Qwen3-VL-Embedding 4096d + 3-way RRF）：
+
+- 4/5 查询 **Top1 命中图片 chunk**——多模态检索链路可用
+- 平均检索延迟 1.48s
+- 图片 chunk 分数整体偏低（0.016-0.033）——与文本 chunk 混排时需要分数归一化或独立通道，属后续优化点
+
+## 五、当前边界
+
+- 多模态对话默认关闭，且**不在流式主链路**（/chat/stream 不支持图文混合）——仅同步端点
+- 文档增强与多模态检索是两条独立链路（增强改变 ingested 文本；实验用的多模态 embedding 未接入主管线）
+- `extraction.*` 依赖阿里云凭证，未配置时增强路径不可用（上传仍走普通 Tika）

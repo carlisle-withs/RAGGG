@@ -106,16 +106,16 @@ extraction:
     retry-count: 2
 
 # ====================================================
-# ReAct 执行引擎配置
+# ReAct 执行引擎配置（2026-09-24 与 AppConfig 默认值对齐）
 # ====================================================
 react:
-  enabled: false
+  enabled: false                 # 引擎总开关（开启前确认 security 已收紧——QUERY_DATABASE 会执行 SQL）
 
-  # 复杂度路由配置
+  # 复杂度路由：LLM 判定 SIMPLE/COMPLEX，失败/超时一律 SIMPLE
   router:
     enabled: true
-    model: Qwen2-1.5B
-    timeout-ms: 100
+    model: deepseek-chat         # 任意 OpenAI 兼容模型
+    timeout-ms: 5000
 
   # Action Space 配置
   actions:
@@ -124,16 +124,21 @@ react:
       top-k: 5
     database:
       enabled: true
+      read-only: true            # 只读护栏：仅放行单条 SELECT/WITH，拒绝多语句/注释/INTO OUTFILE
+      allowed-tables: []         # 表白名单（空=不限；生产建议白名单，排除 t_user 等敏感表）
+      max-rows: 100              # 查询行数上限（驱动层 setMaxRows）
     conversation:
       enabled: true
       window-size: 10
 
-  # 缓存配置
+  # 缓存配置（TTL 与容量上限为 2026-09-24 新增）
   cache:
     enabled: true
+    ttl-ms: 3600000              # 条目 TTL（0=不过期）
+    max-entries: 500             # 容量上限（超限按写入时间淘汰）
     similarity-threshold:
-      direct-hit: 0.95
-      review: 0.85
+      direct-hit: 0.95           # 嵌入余弦 ≥ 此值直接复用缓存结果
+      review: 0.85               # 复核区下限（当前为未接线的设计保留）
 
   # 死循环检测配置
   loop-detection:
@@ -141,10 +146,10 @@ react:
     max-iterations: 5
     fingerprint-match-count: 3
 
-  # 轻量级 LLM 配置（用于复杂度路由和事实提炼）
+  # 轻量级 LLM（事实提炼用；provider=local 时走本地端点，否则用 api-key 远程）
   lightweight-llm:
-    model: Qwen2-1.5B
-    provider: local
-    base-url: http://localhost:8081/v1
-    api-key: dummy
+    model: glm-5.3-flash
+    provider: zhipu
+    base-url: https://open.bigmodel.cn/api/paas/v4
+    api-key: YOUR_ZHIPU_API_KEY_HERE
     timeout-ms: 10000
