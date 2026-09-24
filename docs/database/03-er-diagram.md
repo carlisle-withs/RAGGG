@@ -1,5 +1,7 @@
 # ER 关系图
 
+> **状态说明（2026-09-24）**：下图覆盖 01-schema.sql 的 22 张表；P1 增量 3 张（t_chunk_hierarchy / t_rerank_log / t_retrieval_quality_log，见 [23-hierarchical-chunks.sql](./23-hierarchical-chunks.sql)）未纳入且均为零引用死表。图中 `t_rag_trace_run/node` 对应的链路追踪功能后端未实现（trace 接口返回空列表）；`t_sample_question → t_intent_node` 的关系边无外键支撑，仅供参考。
+
 ## 完整 ER 图
 
 ```mermaid

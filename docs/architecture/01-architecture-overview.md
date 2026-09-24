@@ -1,6 +1,14 @@
 # RAGGG 架构设计文档
 
-> 本文档描述 RAGGG 智能对话平台的完整架构设计，包括已实现模块和待实现模块的详细规划。
+> **⚠️ 实现状态说明（2026-09-24 与代码对账后更新）**：本文档最初写于 2026-01，属"设计 + 规划"混合文档，部分章节描述的是**未实现的设计**。各章节已补加状态标注：
+>
+> | 标注 | 含义 |
+> |---|---|
+> | ✅ 已实现 | 与当前代码一致 |
+> | ⚠️ 有偏差 | 已实现但与本文描述有出入（见标注说明） |
+> | 🚫 未实现 | 纯设计规划，代码中不存在 |
+>
+> **与代码的主要差距速览**（逐条明细见 [known-gaps](../known-gaps.md)）：网关层（Auth 强制校验 / 限流接入 / SSE Hub）未按设计落地——当前是 `permitAll()` + 零限流调用 + 每请求独立 Emitter；RBAC 只有 `t_user.role` 单字段，无 Role/Permission 实体；自动评测触发不存在；部署端口以 `docker-compose.yml` 实际为准（23306/26379/29xxx 系列）。
 
 ## 一、项目概述
 
@@ -18,7 +26,7 @@
 | 全文搜索引擎 | Elasticsearch | 8.15.0 |
 | 消息队列 | Apache Kafka | 3.7.0 |
 | 对象存储 | MinIO | - |
-| 关系数据库 | MySQL | 8.4.0 |
+| 关系数据库 | MySQL | 8.0 |
 | 缓存/会话 | Redis | 7 |
 | 文档解析 | Apache Tika | 2.9.2 |
 | 安全认证 | Spring Security + JWT | - |
@@ -69,7 +77,8 @@
 │                                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────┐                        │
 │  │                         Repository Layer                         │                        │
-│  │   User │ Role │ Permission │ Document │ Chunk │ KnowledgeBase  │                        │
+│  │  User │ KnowledgeDocument │ KnowledgeChunk │ KnowledgeBase     │                        │
+│  │  Conversation │ Message │ MessageFeedback │ ConversationSummary │                    │
 │  └─────────────────────────────────────────────────────────────────┘                        │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
                                   │
@@ -105,6 +114,8 @@
 
 ### 3.1 网关层设计
 
+> **🚫 网关层整体状态**：本节四个组件（Auth 强制校验 / 限流 / 动态路由 / SSE Hub）**均未形成独立网关层**。当前现实：`SecurityConfig` 为 `anyRequest().permitAll()`，认证是"可选身份识别"（带 Bearer 头则解析用户，不带则匿名放行），KB 权限仅 `/api/v1/chat` 同步接口有手工检查（流式 `/chat/stream` 没有）；限流器已实现但零调用；SSE Hub 不存在。以下为原始设计，保留作规划参考。
+
 #### 3.1.1 认证网关 (Auth Gateway)
 
 ```
@@ -128,6 +139,8 @@
 - Token 自动刷新
 
 #### 3.1.2 分布式限流器 (Rate Limiter)
+
+> **⚠️ 有偏差（已实现未接入）**：`DistributedRateLimiter`（ZSET 滑动窗口 + Lua，与下图一致）已在 `infrastructure/ratelimit/` 完整实现，但**全工程无任何调用点**——"限流维度"表描述的四层限流当前均不生效。Redis 异常时 fail-open。
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -172,6 +185,8 @@
 | LLM调用 | 可配置 | 60s | 防止API超限 |
 
 #### 3.1.3 SSE实时推送中心 (SSE Hub)
+
+> **🚫 未实现**：不存在连接管理器/队列管理器/Redis Pub/Sub 广播。当前流式实现是**每请求独立 Emitter**：主链路 `POST /api/v1/chat/stream`（`ResponseBodyEmitter`，NDJSON 三事件 meta/token/finish，300s 超时）；旧版 `GET /api/v1/rag/v3/chat`（SseEmitter，已废弃）。下表的排队类事件（queue_position 等）依赖限流排队，随限流一并未落地。
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -232,17 +247,19 @@
 
 **意图类型定义：**
 
+> **⚠️ 有偏差**：下表为初版设计。`IntentClassifier.java` 实际实现为 **5 类**（LLM 分类，低置信度返回澄清话术）：
+
 | 意图 | 描述 | 处理策略 |
 |------|------|----------|
-| `FACTUAL` | 事实性问答 | RAG检索 |
-| `OPINION` | 观点性问答 | RAG检索 + 多源整合 |
-| `INSTRUCTION` | 系统指令 | 直接执行 |
-| `CHITCHAT` | 闲聊对话 | 闲聊回复 |
-| `CLARIFICATION` | 需要澄清 | 返回澄清问题 |
-| `SUMMARY` | 摘要请求 | 摘要生成 |
-| `MULTI_HOP` | 多跳推理 | 多次检索 + 推理链 |
+| `KNOWLEDGE_QA` | 知识问答 | RAG 检索 |
+| `PRECISE_SEARCH` | 精确查找 | RAG 检索 |
+| `CHIT_CHAT` | 闲聊 | 直接回复（不检索） |
+| `SUMMARY` | 摘要请求 | 使用记忆上下文 |
+| `UNKNOWN` | 无法分类 | 按置信度决定澄清或兜底 |
 
-**置信度机制：**
+初版设计的 7 类（含 `OPINION`/`INSTRUCTION`/`CLARIFICATION`/`MULTI_HOP` 独立类型）未实现；多跳推理后来由 ReAct 引擎（`react.enabled`）承接，见 [03-react-engine.md](./03-react-engine.md)。
+
+**置信度机制（✅ 已实现，简化版）：** 置信度低于阈值返回澄清话术；`MultiIntent` 双意图设计未实现。
 
 ```python
 if confidence < 0.6:
@@ -670,6 +687,8 @@ Score_RRF(d) = Σ 1/(k + rank_i(d))
 
 #### 3.5.2 消费者组设计
 
+> **⚠️ 有偏差**：实际消费者组为 `rag-system-parse` / `rag-system-chunk` / `rag-system-index`；**死信 topic（document-dlq）与重试配置不存在**——消费者 catch 后置文档 FAILED 即正常提交 offset，失败即终态，无重投；实际消费参数为 `max-poll-records: 1`、并发 3、`max-poll-interval 30min`（长解析兜底），下图为初版设计。
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                   Consumer Group Design                        │
@@ -792,6 +811,8 @@ kafka:
 
 #### 3.6.3 自动触发机制
 
+> **🚫 未实现**：以下触发配置仅为设计。当前评测只有 `POST /api/v1/evaluation/ragas` 手动 API（配套 `stress-test/eval_ragas_pipeline.py` 批量脚本），无定时/事件触发、无告警。实测结果见 [testing/ragas-eval-2026-09-22.md](../testing/ragas-eval-2026-09-22.md)。
+
 ```yaml
 evaluation:
   # 自动触发条件
@@ -899,6 +920,8 @@ evaluation:
 
 ### 5.1 RBAC 权限模型
 
+> **🚫 未实现（单角色字段替代）**：Role / Permission 实体与表**不存在**，权限模型实际是 `t_user.role` 单字段（ADMIN/USER）+ JWT role claim + 少数 Controller 手工判断（如 `DocumentController.isAdmin()`、`/chat` 的 `hasKbAccess()`）。`@EnableMethodSecurity` 已开但全仓无 `@PreAuthorize`。下图为初版设计。
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                         RBAC Model                              │
@@ -929,20 +952,17 @@ evaluation:
 
 ### 5.2 JWT Token 结构
 
+> **⚠️ 有偏差**：实际 claims 为 `userId` / `username` / `role`（HS256，access 24h / refresh 7 天），**无 `kbAccess` 字段**——KB 权限是查询时按 `kb.createdBy` 现算的。另：refresh 端点当前不校验 token 类型（见 [known-gaps](../known-gaps.md#security)）。
+
 ```json
 {
-  "header": {
-    "alg": "HS256",
-    "typ": "JWT"
-  },
+  "header": { "alg": "HS256", "typ": "JWT" },
   "payload": {
-    "sub": "user-uuid",
+    "userId": "user-uuid",
     "username": "admin",
     "role": "ADMIN",
-    "kbAccess": ["kb-uuid-1", "kb-uuid-2"],
     "iat": 1704067200,
-    "exp": 1704153600,
-    "type": "access"
+    "exp": 1704153600
   }
 }
 ```
@@ -952,6 +972,8 @@ evaluation:
 ## 六、部署架构
 
 ### 6.1 Docker Compose 部署
+
+> **⚠️ 端口已全部更新为仓库实际值**（与根目录 `docker-compose.yml` 一致，2026-09 核对）。下图端口为初版设计值（3307/6380/9001/9092/19531/9201/3000），**已废弃勿用**。实际端口：MySQL **23306**、Redis **26379**、MinIO **29005**（控制台 29006）、Kafka **29292**、Milvus **29530**、ES **29201**、Attu **20000**，另有 Prometheus 29090 / Grafana 23000 / Ollama 11434 / Pushgateway 19991。详见 [部署文档](../guides/02-deployment.md)。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
@@ -988,18 +1010,20 @@ evaluation:
 
 ---
 
-## 七、待实现功能清单
+## 七、功能实现状态清单（2026-09-24 对账）
 
-| 模块 | 功能 | 优先级 | 状态 |
+| 模块 | 功能 | 优先级 | 实际状态 |
 |------|------|--------|------|
-| SSE Hub | SSE实时推送中心 | P0 | 待实现 |
-| 语义去重 | 基于embedding的对话去重 | P1 | 待实现 |
-| 轨迹审计 | 死循环检测与规避 | P1 | 待实现 |
-| KB动态路由 | 多知识库动态选择 | P1 | 待实现 |
-| 置信度澄清 | 意图不明确时返回澄清 | P1 | 待实现 |
-| 检索缓存 | 查询结果缓存 | P2 | 待实现 |
-| 自动评测 | 定时/触发式评测 | P2 | 待实现 |
-| 告警机制 | 评测指标异常告警 | P2 | 待实现 |
+| SSE Hub | SSE实时推送中心 | P0 | ⚠️ 以"每请求独立 Emitter"形态实现（NDJSON 流式可用，中心化 Hub 未做） |
+| 语义去重 | 基于embedding的对话去重 | P1 | 🚫 未实现（ReAct ActionCache 有嵌入相似度复用，仅覆盖 ReAct 动作） |
+| 轨迹审计 | 死循环检测与规避 | P1 | ✅ 已实现（ReAct LoopDetector 指纹检测，见 03-react-engine.md） |
+| KB动态路由 | 多知识库动态选择 | P1 | ⚠️ 部分（t_intent_node 表+前端 API 封装存在，后端 Controller 未落地） |
+| 置信度澄清 | 意图不明确时返回澄清 | P1 | ✅ 已实现（IntentClassifier 低置信度澄清） |
+| 检索缓存 | 查询结果缓存 | P2 | 🚫 未实现 |
+| 自动评测 | 定时/触发式评测 | P2 | 🚫 未实现（手动 API + 脚本） |
+| 告警机制 | 评测指标异常告警 | P2 | 🚫 未实现 |
+
+另：ReAct 引擎、层级检索（SWA）、两级会话记忆、RAGAS 评测、Kafka 流水线、多模态（可选）等 2026-01 后新增能力见 [02-core-components.md](./02-core-components.md) 与 [known-gaps](../known-gaps.md)。
 
 ---
 
@@ -1008,3 +1032,4 @@ evaluation:
 | 版本 | 日期 | 修改内容 |
 |------|------|----------|
 | 1.0.0 | 2026-01 | 初始架构设计文档 |
+| 1.1.0 | 2026-09-24 | 与代码全面对账：各章节补加实现状态标注；意图分类/RBAC/JWT/消费者组/部署端口修正为实际值；待实现清单更新为对账结果 |

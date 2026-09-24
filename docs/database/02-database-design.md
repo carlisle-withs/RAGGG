@@ -2,10 +2,11 @@
 
 ## 概述
 
-- **数据库名称**: `rag_system` / `ragent`
+- **数据库名称**: `rag_system`（历史文档中出现的 `ragent` 为旧库名，已废弃；实际配置统一为 rag_system）
 - **字符集**: `utf8mb4`
 - **存储引擎**: InnoDB
-- **表数量**: 22 张表
+- **表数量**: 22 张表（另有 P1 增量 3 张，见文末"P1 增量表"）
+- **建表机制（2026-09-24 说明）**: 运行时表由 Hibernate `ddl-auto: update` 按 JPA 实体自动创建，本目录 `01-schema.sql` 为完整参考 DDL 而非实际建库来源；**仅 8 张表有 Repository 读写**（t_user / t_knowledge_base / t_knowledge_document / t_knowledge_chunk / t_conversation / t_message / t_conversation_summary / t_message_feedback），其余 14 张为"有实体无读写"或"仅设计未接线"的表，逐张状态见 [known-gaps](../known-gaps.md#database)。
 
 ---
 
@@ -185,9 +186,8 @@ erDiagram
 | update_time | DATETIME | NOT NULL | 更新时间 |
 | deleted | TINYINT(1) | NOT NULL, DEFAULT 0 | 软删除标记 |
 
-**文档状态 (status)**:
-- `PENDING` - 待处理
-- `PROCESSING` - 处理中
+**文档状态 (status)**（2026-09-24 与代码 `KnowledgeDocument.DocumentStatus` 对齐；`PROCESSING` 枚举值代码中未使用）:
+- `PENDING` - 待处理（上传落库后）
 - `PARSING` - 解析中
 - `PARSED` - 已解析
 - `CHUNKING` - 分块中
@@ -684,8 +684,21 @@ erDiagram
 
 ---
 
+## P1 增量表（未接线，2026-09-24 补录）
+
+P1 迭代新增 3 张表，DDL 见 [23-hierarchical-chunks.sql](./23-hierarchical-chunks.sql)。**三张表在 Java 源码中零引用**（无实体、无 Repository、无 SQL 访问），为层级分块（SWA）的规划存储层，实际未接线：
+
+| 表 | 用途（规划） | 状态 |
+|----|------|------|
+| `t_chunk_hierarchy` | Parent/Leaf 父子关系 + window_content 句窗内容，服务 Sentence Window + Auto-Merging | 🚫 零引用（SWA 实际尝试走 Milvus/ES metadata 且已失效，见 [known-gaps](../known-gaps.md#swa)） |
+| `t_rerank_log` | rerank 调用日志 | 🚫 零引用 |
+| `t_retrieval_quality_log` | 检索质量追踪（含 retrieval_strategy 字段） | 🚫 零引用 |
+
+---
+
 ## 文档更新记录
 
 | 日期 | 版本 | 更新内容 |
 |------|------|----------|
 | 2026-04-10 | 1.0 | 初始版本，包含22张表 |
+| 2026-09-24 | 1.1 | 对账更新：修正库名（废弃 ragent）、文档状态枚举与代码对齐、概述补建表机制与活表说明、补录 P1 增量 3 表（未接线） |

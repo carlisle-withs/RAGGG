@@ -1,5 +1,17 @@
 # ReAct 执行引擎方案
 
+> **✅ 实现状态回写（2026-09-24）**：本引擎**已实现并合入主干**（`application/chat/react/`，`react.enabled` 开关，当前 config.yaml 为开启状态）。与本文设计的对账结果：
+>
+> | 方面 | 状态 |
+> |---|---|
+> | 五大组件 / 动作空间 / 最大 5 轮 / 指纹 3 次降级 / 缓存 0.95 直击 | ✅ 与代码一致（动作枚举文案逐字对应） |
+> | 轻量模型选型 | ⚠️ **未采用 Qwen2-1.5B 本地方案**——实际 `react.router.model=deepseek-chat`、`react.lightweight-llm=glm-5.3-flash`（智谱远程 API），router 超时 5000ms（非设计的 100ms） |
+> | 包结构 | ⚠️ ComplexityRouter 与 LocalLlmClient 均在 `application/chat/react/` 包内（非本文的 `application/chat/` 与 `infrastructure/llm/`）；实际另有 ReActReasoner（Reasoning 协议解析） |
+> | 监控指标 | 🚫 `react.*` Micrometer 指标未实现，仅有日志 |
+> | 已知实现问题 | ReAct 分支不返回 sources；降级时把执行摘要直接当答案返回；LoopDetector/ActionCache 为进程内单例（跨请求共享、无 TTL）；QUERY_DATABASE 动作直执行 LLM 生成的 SQL 无只读校验——见 [known-gaps](../known-gaps.md#react) |
+>
+> 本文其余内容保留为设计原理参考。
+
 ## 一、背景与目标
 
 ### 1.1 问题描述
@@ -269,31 +281,27 @@ react:
 
 ## 五、类设计
 
-### 5.1 包结构
+### 5.1 包结构（⚠️ 已按实际代码修正，2026-09-24）
 
 ```
 src/main/java/com/rag/
 ├── application/
 │   └── chat/
 │       ├── ChatApplicationService.java    # 核心编排服务
-│       ├── ComplexityRouter.java          # 复杂度路由
-│       └── react/                         # 新增 ReAct 模块
-│           ├── ReActEngine.java           # 执行引擎
+│       └── react/                         # ReAct 模块（全部组件都在此包内）
+│           ├── ReActEngine.java           # 执行引擎主循环
+│           ├── ReActReasoner.java         # Reasoning:/Action:/Params: 协议生成与解析
 │           ├── ReActContext.java          # 执行上下文
+│           ├── ComplexityRouter.java      # 复杂度路由（⚠️ 实际在 react/ 包，非 application/chat/）
 │           ├── ActionExecutor.java        # Action 执行器
-│           ├── ActionCache.java            # 缓存管理
-│           ├── LoopDetector.java           # 死循环检测
+│           ├── ActionCache.java           # 缓存管理
+│           ├── LoopDetector.java          # 死循环检测
+│           ├── LocalLlmClient.java        # 轻量 LLM 客户端（⚠️ 实际在 react/ 包，非 infrastructure/llm/）
 │           └── model/
-│               ├── Thought.java           # 思考结果
-│               ├── Action.java            # Action 定义
-│               ├── ActionResult.java      # Action 执行结果
-│               └── LoopDetectionResult.java
-├── infrastructure/
-│   ├── llm/
-│   │   ├── ChatModelService.java
-│   │   └── LocalLlmClient.java           # 本地 LLM 调用
-│   └── retrieval/
-│       └── HybridRetrievalService.java
+│               ├── Thought.java / Action.java / ActionResult.java
+│               ├── LoopDetectionResult.java / TaskComplexity.java / ReActResult.java
+└── infrastructure/
+    └── llm/  (ChatModelService / EmbeddingService 等被 react 依赖)
 ```
 
 ### 5.2 核心类说明
@@ -473,15 +481,16 @@ Start Loop (max 5 iterations)
 | Qwen2-1.5B | 1.5B | INT4 | ~1.5GB | 复杂度路由 + 事实提炼 |
 | Qwen2-0.5B | 0.5B | INT4 | ~500MB | 备选 |
 
-### 8.2 本地部署方式
+> **⚠️ 选型未采用（2026-09-24）**：实际部署未使用本地小模型，改为远程 API：`react.router.model=deepseek-chat`（复杂度路由）+ `react.lightweight-llm` 指向 glm-5.3-flash（事实提炼，provider=local 时启用）。LocalLlmClient 保留本地端点能力但当前配置走远程。下表所列 INT4 显存估算仅作历史参考。
 
-使用 Ollama 或 vLLM 部署：
+### 8.2 本地部署方式（未采用的备选路径）
+
 ```bash
 # Ollama
 ollama run qwen2:1.5b
 
 # vLLM
-python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2-1.5B
+python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2-1.5b
 ```
 
 ---
@@ -501,17 +510,21 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2-1.5B
 
 ## 十、监控指标
 
+> **🚫 未实现（2026-09-24）**：以下指标在 react 包中**零 MeterRegistry 引用**，当前只有结构化日志。原表中 `react.cache.精审.triggered` 为中英混杂笔误，且 0.85 精审（needsReview）逻辑在代码中存在但 ReActEngine 从不调用（死代码）。
+
 | 指标 | 说明 |
 |------|------|
 | `react.loop.detection.count` | 死循环检测触发次数 |
 | `react.cache.hit.rate` | 缓存命中率 |
-| `react.cache.精审.triggered` | 小模型精审触发次数 |
+| `react.cache.review.triggered` | 小模型精审触发次数 |
 | `react.degradation.count` | 降级到 Simple RAG 次数 |
 | `react.iteration.avg` | 平均迭代次数 |
 
 ---
 
-## 十一、实施计划
+## 十一、实施计划（✅ 已完成）
+
+> 实施已于设计后完成并合入主干；第 9/10 阶段的测试仅覆盖协议解析层，ReAct 引擎整体无专属单测。遗留改进项（溯源、降级质量、单例状态隔离、SQL 只读校验、监控埋点）见文首状态块与 [known-gaps](../known-gaps.md#react)。
 
 | 阶段 | 任务 | 工期 |
 |------|------|------|

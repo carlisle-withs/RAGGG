@@ -1,17 +1,16 @@
 # 快速入门
 
+> **状态**：与 2026-09-24 仓库实际代码核对重写。以仓库根目录 [README.md](../../README.md) 为最高优先级参考，本文与其冲突时以 README 为准。
+
 ## 环境要求
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
 | Java | 17+ | JDK 17 LTS |
 | Maven | 3.8+ | 构建工具 |
-| MySQL | 8.0+ | 关系数据库 |
-| Redis | 7+ | 缓存/会话存储 |
-| Milvus | 2.6+ | 向量数据库 |
-| Elasticsearch | 8.x | 全文搜索引擎 |
-| MinIO | - | 对象存储 |
-| Kafka | 3.x | 消息队列 |
+| Docker & Docker Compose | - | 中间件全部容器化（MySQL/Redis/Milvus/ES/MinIO/Kafka/Ollama/监控栈） |
+
+中间件不需要单独安装，全部由 `docker-compose.yml` 提供。
 
 ---
 
@@ -24,45 +23,77 @@ git clone <repository-url>
 cd RAGGG
 ```
 
-### 2. 配置数据库
+### 2. 准备配置文件
 
-创建 `config.yaml` 或修改 `application.yml`：
+配置不走 `spring.datasource.*`，而是通过根目录 `config.yaml`（自定义键，由 `application.yml` 以 `${mysql.port:3306}` 这类占位符引用；`spring.config.import: optional:file:./config.yaml`）：
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/ragent?useSSL=false&serverTimezone=UTC
-    username: root
-    password: your_password
-  
-  data:
-    redis:
-      host: localhost
-      port: 6379
+```bash
+cp config.yaml.example config.yaml
 ```
 
-### 3. 启动基础设施
+必改项：
 
-使用 Docker Compose 启动所有中间件：
+```yaml
+server:
+  ip: localhost        # 所有中间件地址统一引用这一处
+
+llm:                   # 任意 OpenAI 兼容提供方（deepseek / zhipu / minimax ...）
+  provider: minimax    # 示例默认 minimax；实际按需修改
+  api-key: YOUR_KEY
+  model: MiniMax-Text-01
+  base-url: https://api.minimax.chat/v1
+```
+
+Embedding 二选一（`embedding.provider`）：
+
+| 模式 | 配置 | 说明 |
+|---|---|---|
+| `siliconflow`（example 默认） | 填 `embedding.api-key` | 云端 BAAI/bge-m3 |
+| `ollama`（本地免 key） | `provider: ollama` + `base-url: http://localhost:11434` | 需先执行第 4 步拉模型 |
+
+Reranker（可选，`reranker.enabled: true` 时需要 SiliconFlow key；key 无效时会**静默回退为未重排结果**，见 [known-gaps](../known-gaps.md#reranker)）。
+
+### 3. 启动基础设施
 
 ```bash
 docker-compose up -d
 ```
 
-### 4. 编译并运行
+| 服务 | 宿主端口 |
+|---|---|
+| MySQL 8.0（库 `rag_system`） | 23306 |
+| Redis 7 | 26379 |
+| Elasticsearch 8.15 | 29201 |
+| Milvus 2.6.6（Attu 管理台） | 29530（Attu 20000） |
+| MinIO（控制台） | 29005（29006） |
+| Kafka 3.7 | 29292 |
+| Ollama | 11434 |
+| Prometheus / Grafana / Pushgateway | 29090 / 23000 / 19991 |
+
+注意事项：
+
+- **Kafka advertised listener 内含硬编码的内网 IP**（`KAFKA_ADVERTISED_LISTENERS`），非本机环境需要改成实际宿主 IP，否则连得上但收不到消息。
+- 数据库表由 Hibernate `ddl-auto: update` 自动创建（`init.sql` 只设置字符集）；默认账号 `admin/admin123` 由后端 `DataInitializer` 启动时创建，**不依赖任何 SQL 脚本**。
+
+### 4. 拉取本地 Embedding 模型（仅 ollama 模式需要）
 
 ```bash
-# 编译
-mvn clean package -DskipTests
-
-# 运行
-java -jar target/rag-demo-1.0.0-SNAPSHOT.jar
+docker exec -it rag-ollama ollama pull bge-m3
 ```
 
-### 5. 访问系统
+### 5. 编译并运行
 
-- API 地址: http://localhost:8080/api/v1
-- 默认管理员: admin / admin123
+```bash
+mvn clean package -DskipTests
+java -jar target/rag-demo-1.0.0-SNAPSHOT.jar
+# 或开发模式：mvn spring-boot:run -DskipTests
+```
+
+### 6. 访问系统
+
+- 有 `config.yaml`（`app.port: 8080`）→ API `http://localhost:8080/api/v1`；**无 config.yaml 时回落 8081**（`application.yml` 默认值）
+- 前端页面：`http://localhost:8080/index.html`
+- 默认管理员：`admin / admin123`
 
 ---
 
@@ -71,51 +102,64 @@ java -jar target/rag-demo-1.0.0-SNAPSHOT.jar
 ### 认证
 
 ```bash
-# 登录
 POST /api/v1/auth/login
-{
-  "username": "admin",
-  "password": "admin123"
-}
+{ "username": "admin", "password": "admin123" }
+# → { "token": "<JWT>", "refreshToken": "...", "user": {...} }
 ```
 
-### 知识库
+> 注意：当前 SecurityConfig 为 `anyRequest().permitAll()`，接口可匿名调用；带 `Authorization: Bearer <token>` 时启用按用户/KB 的权限判断（见 [known-gaps](../known-gaps.md#security)）。
+
+### 知识库与文档
 
 ```bash
-# 创建知识库
-POST /api/v1/kbs
-{
-  "name": "我的知识库",
-  "embeddingModel": "BAAI/bge-m3"
-}
+# 创建知识库（注意路径是 /knowledge-base，不是 /kbs）
+POST /api/v1/knowledge-base
+{ "name": "我的知识库" }
 
-# 上传文档
+# 上传文档（multipart）
 POST /api/v1/documents/upload
-Content-Type: multipart/form-data
-
-kbId: 1
 file: <your-file.pdf>
+kbId: "1"
+chunkStrategy: fixed        # fixed/structural/semantic/intelligent/swa
+
+# 查询处理状态（异步流水线：PENDING→PARSING→…→COMPLETED/FAILED）
+GET /api/v1/documents?kbId=1
 ```
 
 ### 对话
 
 ```bash
-# 聊天
+# 同步对话（返回 message + sources 引用）
 POST /api/v1/chat
-{
-  "message": "你好，请介绍一下RAG技术",
-  "kbIds": ["1"]
-}
+{ "message": "请介绍一下RAG技术", "kbIds": ["1"] }
+
+# 流式对话（前端主链路，NDJSON：{"type":"meta"} → {"type":"token","delta"} → {"type":"finish"}）
+POST /api/v1/chat/stream
+{ "message": "...", "kbIds": ["1"], "conversationId": "..." }
 ```
+
+> 旧的 `GET /api/v1/rag/v3/chat`（SSE）已废弃，前端不再使用。
+
+---
+
+## 常见问题
+
+| 现象 | 原因 |
+|---|---|
+| 检索结果为空 / 查询报错 | ollama 模式未执行第 4 步拉取 bge-m3 |
+| 文档上传后 Kafka 收不到消息 | compose 里 Kafka advertised IP 与本机不符 |
+| 端口 8080 连不上 | 无 config.yaml，服务在 8081 |
+| 排序无精排效果 | reranker key 失效被静默回退（见 known-gaps） |
 
 ---
 
 ## 下一步
 
-- 查看 [架构文档](../architecture/01-architecture-overview.md) 了解系统设计
-- 查看 [数据库设计](../database/02-database-design.md) 了解数据模型
-- 查看 [部署文档](./02-deployment.md) 了解生产环境部署
+- [架构总览](../architecture/01-architecture-overview.md)（注意阅读其头部的"实现状态"说明）
+- [数据库设计](../database/02-database-design.md)
+- [实现差距清单](../known-gaps.md)——哪些特性是设计而非现实
+- [部署文档](./02-deployment.md)
 
 ---
 
-*最后更新: 2026-04-10*
+*最后更新: 2026-09-24*

@@ -3,6 +3,13 @@
 -- 支持 Sentence Window + Auto-Merging 检索策略
 -- ============================================
 -- 使用方式: mysql -u root -p rag_system < docs/database/23-hierarchical-chunks.sql
+--
+-- ⚠️ 状态警示（2026-09-24 代码核对）：
+-- 1. 本文件 3 张表（t_chunk_hierarchy / t_rerank_log / t_retrieval_quality_log）在全部 Java 源码中
+--    【零引用】——无对应实体、无 Repository、无任何 SQL 访问。执行与否不影响系统运行。
+-- 2. 层级检索（SWA）实际尝试从 Milvus/ES 的 chunk metadata 读取父子关系，而非查本表；
+--    且该链路因 metadata 在检索返回中缺失而端到端失效（详见 docs/known-gaps.md §SWA）。
+-- 3. 文件名 "23" = 接在 01-schema.sql 的 22 张表之后的第 23+ 张增量表。
 
 USE rag_system;
 

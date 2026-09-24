@@ -1,6 +1,16 @@
--- RAG数据库建表脚本
+-- RAG数据库建表脚本（完整参考 DDL，22 张表）
 -- 数据库: rag_system
 -- 字符集: utf8mb4
+--
+-- ⚠️ 使用说明（2026-09-24 核对）：
+-- 1. 本脚本【不是】实际建库来源——运行时表由 Hibernate `ddl-auto: update` 按 JPA 实体自动创建
+--    （根目录 init.sql 仅设置字符集）。本脚本用作人工审查/重建对照的完整参考。
+-- 2. 仅 8 张表有对应 JPA Repository（活表）：t_user, t_knowledge_base, t_knowledge_document,
+--    t_knowledge_chunk, t_conversation, t_message, t_conversation_summary, t_message_feedback。
+--    其余表为"有实体无读写"或"仅设计未接线"（如 t_intent_node, t_query_term_mapping,
+--    t_rag_trace_run/node, doc_outbox——对应功能后端未落地，详见 docs/known-gaps.md）。
+-- 3. 层级分块 P1 增量 3 张表（t_chunk_hierarchy 等）见同目录 23-hierarchical-chunks.sql（均为未接线死表）。
+-- 4. 默认账号不依赖本脚本 INSERT（t_user 部分）——后端 DataInitializer 启动时自动创建 admin/admin123。
 
 CREATE DATABASE IF NOT EXISTS rag_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

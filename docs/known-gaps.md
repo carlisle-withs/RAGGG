@@ -1,0 +1,126 @@
+# RAGGG 实现差距清单（Known Gaps）
+
+- **日期**：2026-09-24（基于当日全量代码走读，范围：后端 123 个 Java 文件、前端 src/、stress-test/、部署配置）
+- **用途**：记录"README/设计文档宣称"与"代码实际"之间的差距，供阅读各架构文档时对账，供排期修复。其他文档中以 `known-gaps.md#锚点` 引用本页。
+- **图例**：🔴 阻断生产 / 影响核心功能正确性 · 🟡 功能缺失或可靠性缺口 · 🟢 轻微 / 死代码 / 债务 · ✅ 已修复（附修复说明）
+
+---
+
+<a id="swa"></a>
+## 🔴 SWA 层级检索端到端失效 —— ✅ 已修复（2026-09-24，同日）
+
+**修复内容**（metadata 全链接通）：
+- `HybridRetrievalService.RetrievalResult` record 增加 `metadata` 字段（保留 4 参兼容构造），`rrfFusion` 透传双路召回携带的 metadata；
+- Milvus schema 新增 `metadata` VarChar(65535) 字段（JSON 序列化），`insertBatch` 写入、`search()` outputFields 带出并反序列化；启动时检测旧集合无此字段则 drop 重建（**需重灌语料**，与维度变更同款行为）；
+- ES `search()` 返回 metadata（写入侧本就有动态字段）；
+- `HierarchicalRetrievalService` 转换改为 5 参构造透传 metadata——**Auto-Merging 与 Sentence Window 首次真实生效**；
+- 回归测试 `HierarchicalRetrievalServiceTest`（合并/不合并+窗口扩展/孤立块/无 metadata 降级 4 场景）与 `MilvusVectorStoreMetadataTest`（序列化往返守卫）锁定行为。
+
+⚠️ 升级注意：存量 Milvus 集合会在启动时被检测为旧 schema 并重建，向量数据需通过重上传/重灌恢复；`t_chunk_hierarchy` 表仍是零引用死表（检索走 Milvus/ES metadata 路线，与该表无关）。
+
+<a id="security"></a>
+## 🔴 Security 安全面为演示形态 —— ✅ 核心项已修复（2026-09-24，同日）
+
+**已修复**：
+- `SecurityConfig`：`/api/**` 默认 `authenticated()`；仅 `/api/v1/auth/**`、`/actuator/**`（Prometheus 无 JWT，生产建议内网隔离）与静态 SPA 放行；`/api/v1/admin/**` 要求 `ROLE_ADMIN`。前端 axios 拦截器与流式 fetch 均已携带 Bearer token，401 自动跳登录页，无需前端改动。
+- refresh 端点补 `type=refresh` claim 校验（`JwtUtils.isRefreshToken`），access token 不再可自我续期。
+- `/chat/stream` 补 `hasKbAccess()` KB 权限检查，与同步 `/chat` 对齐（403 经 ResponseStatusException）。
+
+**仍待处理**：
+- ⚠️ `config.yaml` 中真实智谱/SiliconFlow key 的轮换——**只能由仓库所有者本人操作**（历史上泄露吊销过一次）；
+- 无 token 撤销/黑名单；`getSigningKey()` 对 <32 字节 secret 零字节填充；默认 secret 硬编码在源码；
+- `/actuator/**` 仍公开（Prometheus 抓取需要，生产建议加内网/Basic 防护）。
+
+<a id="react"></a>
+## 🔴 ReAct 引擎（react.enabled，当前开启）—— ✅ SQL 防护已修复（2026-09-24，同日）
+
+**已修复**：`ActionExecutor` 的 `QUERY_DATABASE` 加 SQL 安全护栏（`react.actions.database.read-only/allowed-tables/maxRows` 配置）：只读模式下仅放行单条 SELECT/WITH，拒绝分号多语句/注释/INTO OUTFILE 导出；可选表白名单（FROM/JOIN 提取比对）；驱动层 `setMaxRows` + `setQueryTimeout(10s)` 兜底；拒绝时 warn 日志留痕。
+
+**✅ 同日第二批修复（ReAct 遗留清零）**：
+- 降级质量：`ChatApplicationService` 检测到 `ReActResult.degraded` 时**回退真实 RAG 链路重新作答**（此前把"执行摘要+降级原因"直接当用户答案返回）；
+- ReAct sources：`ActionResult` 新增 sources 字段，`RETRIEVE_KNOWLEDGE` 动作携带检索命中，`ChatApplicationService` 按 chunkId 去重聚合（前 5 条）随 ChatResponse 返回——ReAct 分支首次可溯源；
+- 单例隔离：`LoopDetector` 改为每次 execute() 创建独立 `ExecutionState`（指纹历史不再跨请求污染）；`ActionCache` 加 TTL（`react.cache.ttl-ms` 默认 1h）与容量上限（`react.cache.max-entries` 默认 500，超限按写入时间淘汰）。
+
+**仍待处理**：0.85 复核区（`needsReview`）与 `LocalLlmClient.isDuplicate` 为死代码；`react.*` Micrometer 监控指标未实现（仅日志）。
+
+<a id="reranker"></a>
+## 🟡 Reranker 精排 —— ✅ 已修复（2026-09-24，同日）
+
+- 静默回退可观测：新增 `rerank_fallback_total{reason}` 计数指标（api_error / http_status_N / empty_result / unexpected），PubMedQA 式"0/196 排序被改变而无人察觉"不再可能无声发生；
+- 混排 bug 修复：`top_n` 一律传全部候选数（未进返回集的候选拿 RRF 分当 relevance 与 0~1 分混排的问题从根上消除），截断移到排序后。
+
+**仍待处理**：本地回退 `CrossEncoderReranker` 仍为 N+1 次 embedding 调用（仅在 provider 切本地时使用）。
+
+## 🟡 Kafka 摄入可靠性 —— ✅ 主要项已修复（2026-09-24，同日）
+
+**已修复**：
+- 三个消费者去 `this.doProcess()` 自调用：`@KafkaListener` 方法直接标注 `@Transactional`（容器经 Spring 代理调用，事务真实生效）；
+- "无 chunks" 路径置 FAILED 终态，状态不再永远停在 INDEXING；
+- 容器加 `DefaultErrorHandler`（FixedBackOff 1s × 2）覆盖基础设施级异常，重试带 warn 日志；
+- Producer 发送失败新增 `kafka_produce_fail_total{topic}` 指标（仍无 outbox 补偿，但可告警）。
+
+**仍待处理**：业务失败仍是"置 FAILED 即终态"（有意设计，无 DLT/重投）；producer 无 outbox 补偿；`kafka-topics.document-raw/...` 死配置未清理。
+
+**同日顺带修复**：上传分块参数接通——`ChunkService` 现在从事件 metadata 提取 chunkSize/chunkOverlap/minParagraphLength/maxParagraphLength/maxTokensPerChunk 传给策略（此前传空 Map，用户自定义参数全部无效）。
+
+## 🟡 Traceability 溯源断链 —— ✅ 主链路已修复（2026-09-24，同日）
+
+**已修复**：流式 `POST /chat/stream` 的 finish 事件新增 `sources` 数组（chunkId/截断 content/score）；前端 `chatStore` 解析 finish 事件把 sources 挂到消息上，`MessageItem` 新增可折叠"引用来源"面板（编号 + chunkId + 相关度分数 + 预览内容）。RAG 问答的引用溯源在主链路端到端可用。
+
+**✅ 同日第二批修复**：
+- sources 持久化：`t_message` 新增 `sources` 列（JSON 数组），流式与同步链路的 assistant 消息回写时携带引用；`GET /conversations/{id}/messages` 两条路径（Redis 快路径按 id 批量补齐 / MySQL 回源）均返回 sources，前端历史会话回显引用面板——刷新后引用不再丢失；
+- trace 体系落地：新增 `RagTraceRunRepository`/`RagTraceNodeRepository`；`RagContextService.build` 记录步骤级 trace（condense/term_mapping/expand/hybrid_retrieval/context_assembly 五节点，含耗时与 extraData，落库失败静默）；`/api/v1/rag/traces/runs`（分页+过滤）与 `/traces/runs/{traceId}`（瀑布明细）返回真实数据，前端已存在的 traces 管理页即插即用。
+
+**仍待处理**：`useStreamResponse.ts` 死代码未清理；"深度思考"开关仍是空壳（仅 DB 历史加载时可见）。
+
+**同日新增**：`RagContextService` 检索上下文 token 预算（`retrieval.context-max-tokens:4000`，与记忆系统同口径估算，超预算按相关性截断）。
+
+<a id="database"></a>
+## 🟡 Database 死表清单（25 张表中 17 张无读写）
+
+活表（有 Repository，8 张）：`t_user` `t_knowledge_base` `t_knowledge_document` `t_knowledge_chunk` `t_conversation` `t_message` `t_conversation_summary` `t_message_feedback`
+
+| 表 | 状态 |
+|---|---|
+| `t_intent_node` `t_query_term_mapping` | ✅ 已落地（第二批）：Repository + Controller（`/api/v1/intent-tree`、`/api/v1/mappings`，对齐前端既有 service 契约）；词映射经 `QueryTermService`（60s 缓存）接入检索管线做术语归一化，管理端变更即失效缓存；意图树提供 CRUD/树查询/批量启停，检索路由消费其配置属后续迭代 |
+| `t_rag_trace_run` `t_rag_trace_node` | ✅ 已落地（第二批）：RagContextService 步骤级记录，traces 接口返回真实数据 |
+| `t_sample_question` `t_ingestion_pipeline` `doc_outbox` `doc_processing_log` | 有实体无读写（sample-question 接口走内存/stub） |
+| `t_ingestion_pipeline_node` `t_ingestion_task` `t_ingestion_task_node` `t_knowledge_document_chunk_log` `t_knowledge_document_schedule` `t_knowledge_document_schedule_exec` | schema.sql 独有，无实体（ddl-auto 不会创建；前端页面部分功能对应的是这些未接线能力） |
+| `t_chunk_hierarchy` `t_rerank_log` `t_retrieval_quality_log` | P1 增量（23-hierarchical-chunks.sql），全源码零引用 |
+
+## 🟡 Milvus / 检索杂项
+
+- kbId 过滤为字符串拼接表达式（`"kb_id == \"" + kbId + "\""`），kbId 来自请求。
+- 启动时维度不匹配会 **drop + 重建集合（丢全部向量数据）**，靠查一条记录的向量长度推断维度。
+- `RetrievalMetrics.recordRetrievalMetrics` 中 milvus/es 延迟硬编码 0；主链路只记录 rerank 延迟。
+- `HybridRetrievalService.rrfFusion()` 的 topK 参数未使用（截断靠上层）；任一路异常整体返回空列表（单路无降级）。
+
+## 🟢 轻微 / 债务
+
+- `SemanticChunkStrategy` 名不副实：规则启发式（标点+连接词+token 预算），不计算 embedding 相似度。
+- 同步链路意图分类重复调用 2 次（`performSimpleFlow` + `buildSimpleResponse`/兜底分支）。
+- `ChunkStrategyFactory.getStrategy()` 每次 new 实例、不注入全局 chunk-size/overlap 配置；`FixedChunkStrategy.findSmartOverlapStart` 死代码。
+- 意图解析 `response.contains(intent.name())` 易误匹配；confidence 假设逗号分隔。
+- 前端：`chatStore` 默认 `activeKbId: "2"` 硬编码且与 ChatInput 的"强制选第一个 KB"互相覆盖；`authStore`/`MarkdownRenderer` 带 `@ts-nocheck`；压测脚本端口 8080/8081 不一致。
+- `config.yaml`（本地）与 docker-compose 端口不匹配（3307/9200/19530 系 vs 23306/29201/29530 系）——compose + 该 config.yaml 起不来；docker-compose 的 Kafka advertised IP 硬编码 `10.21.234.129`。
+- `watchdog.sh` 会把前端 dist 拷进 `src/main/resources/static/`（构建产物入库风险）。
+- `M3ResponseCleaner` 依赖 `<think>` 标签文本协议，模型输出格式变化即失效（已有降级）。
+- `DistributedRateLimiter` 实现完整但**全工程零调用**（README"分布式限流"未生效）；`/api/v1/rag/v3/stop` 是 stub（README"支持停止"不成立）。
+
+---
+
+## 修复优先级建议（2026-09-24 执行后更新）
+
+**第一批**（✅ 见上文各节）：P0 安全收紧/refresh 校验/流式 KB 检查、ReAct SQL 护栏；P1 SWA 断链、rerank 可观测、流式 sources+引用 UI、Kafka 事务/重试/卡死；P2 分块参数、上下文 token 预算。
+
+**第二批**（✅ 同日）：ReAct 三遗留清零（降级回退真实 RAG、sources 聚合、单例隔离+缓存 TTL）；sources 持久化到 t_message（历史会话回显引用）；trace 体系落地（仓储+步骤级记录+真实接口）；词映射/意图树基础 API 落地（死表 17 → 11 张）。验证：后端编译通过、6 个测试类 32 用例全绿、前端构建通过。
+
+| 级别 | 剩余事项 |
+|---|---|
+| **P0** | ⚠️ **轮换 config.yaml 中的 API key**（只能由所有者操作，历史上泄露过一次） |
+| **P1** | SWA 生效需重灌语料（Milvus 旧集合启动时自动重建） |
+| **P2** | ReAct 单例状态隔离 + ActionCache TTL；死表清理或落地（意图树/词映射二选一）；trace 体系落地或下线前端页面；token 撤销机制；`/actuator` 收紧 |
+
+---
+
+*维护约定：修复某项后请将对应条目标记 ✅ 并注明修复 commit；新增已知差距按严重度插入对应分组。*

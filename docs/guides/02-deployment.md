@@ -1,215 +1,106 @@
 # 部署文档
 
+> **状态**：与 2026-09-24 仓库实际核对重写。本仓库**不附带第二套 compose 模板**——生产与开发共用根目录 [docker-compose.yml](../../docker-compose.yml)（12 服务，含完整监控栈），本文直接引用它，不再内嵌过时副本。
+
 ## 部署架构
 
+**当前形态：单机部署**（一个后端实例 + compose 中间件全家桶）。下图的 LB + 多应用服务器拓扑为**水平扩容规划**，当前未实践，且直接多实例部署有已知限制（见"水平扩容注意事项"）。
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Load Balancer                            │
-│                      (Nginx / 云负载均衡)                         │
-└─────────────────────────────────┬───────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Application Servers                          │
-│                   ┌─────────┐  ┌─────────┐  ┌─────────┐       │
-│                   │ Server1 │  │ Server2 │  │ Server3 │       │
-│                   │ (8080)  │  │ (8080)  │  │ (8080)  │       │
-│                   └─────────┘  └─────────┘  └─────────┘       │
-└─────────────────────────────────┬───────────────────────────────┘
-                                  │
-        ┌─────────────────────────┼─────────────────────────┐
-        │                         │                         │
-        ▼                         ▼                         ▼
-┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-│    MySQL      │       │    Redis      │       │   MinIO       │
-│   (主从复制)   │       │   (集群)      │       │   (对象存储)   │
-└───────────────┘       └───────────────┘       └───────────────┘
-        │
-        ▼
-┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-│   Milvus      │       │Elasticsearch │       │    Kafka      │
-│  (向量数据库)   │       │  (全文搜索)   │       │   (消息队列)   │
-└───────────────┘       └───────────────┘       └───────────────┘
+                    ┌────────────────────────────┐
+   浏览器 ──HTTP──▶ │  Spring Boot 后端 (8080)    │
+                    │  + 前端静态资源 (index.html) │
+                    └─────────────┬──────────────┘
+        ┌──────────┬──────────────┼──────────────┬─────────────┐
+        ▼          ▼              ▼              ▼             ▼
+   MySQL8.0     Redis7       Milvus2.6.6      ES8.15        Kafka3.7
+   :23306       :26379    (standalone+etcd)  :29201    (KRaft,无ZK)
+   rag_system                                BM25全文        :29292
+        └──────────┴── MinIO :29005 ──────────┴──────────────┘
+                    （文档三阶段产物：raw / parsed.txt / chunks.json）
+
+   可观测：Prometheus :29090 → Grafana :23000（预置 20 面板）← Pushgateway :19991
+   Embedding：Ollama :11434（本地 bge-m3）或 SiliconFlow API
 ```
 
 ---
 
 ## 环境准备
 
-### 1. 安装 Java 17
+### 1. 安装 Java 17 与 Maven
 
 ```bash
 # Ubuntu/Debian
-sudo apt update
-sudo apt install openjdk-17-jdk
+sudo apt update && sudo apt install openjdk-17-jdk maven
 
 # CentOS/RHEL
-sudo yum install java-17-openjdk
+sudo yum install java-17-openjdk maven
 ```
 
-### 2. 安装 Maven
-
-```bash
-# Ubuntu/Debian
-sudo apt install maven
-
-# 下载安装
-wget https://dlcdn.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
-tar -xzf apache-maven-3.9.6-bin.tar.gz
-export PATH=$PATH:/opt/apache-maven-3.9.6/bin
-```
-
----
-
-## Docker Compose 部署
-
-### 1. 创建 docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  mysql:
-    image: mysql:8.4.0
-    environment:
-      MYSQL_ROOT_PASSWORD: your_password
-      MYSQL_DATABASE: ragent
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    command: --default-authentication-plugin=mysql_native_password
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  minio:
-    image: minio/minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-
-  elasticsearch:
-    image: elasticsearch:8.15.0
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
-    ports:
-      - "9200:9200"
-    volumes:
-      - es_data:/usr/share/elasticsearch/data
-
-  milvus:
-    image: milvusdb/milvus:v2.6.6
-    ports:
-      - "19530:19530"
-    volumes:
-      - milvus_data:/var/lib/milvus
-
-  kafka:
-    image: confluentinc/cp-kafka:3.7.0
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-    depends_on:
-      - zookeeper
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:3.7.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-
-volumes:
-  mysql_data:
-  redis_data:
-  minio_data:
-  es_data:
-  milvus_data:
-```
-
-### 2. 启动服务
+### 2. 启动基础设施（仓库自带 compose）
 
 ```bash
 docker-compose up -d
 ```
 
----
+12 个服务与健康检查、`rag-network` bridge 均已定义。**部署前必查两处**：
 
-## 应用部署
+1. **Kafka advertised listener 硬编码了内网 IP**（`KAFKA_ADVERTISED_LISTENERS`），非 compose 原机器部署需改为实际宿主 IP；
+2. `server.ip` 是 `config.yaml` 的中间件地址汇聚点，跨机部署只改这一处（compose 内网名与宿主端口映射的关系见 [快速入门](./01-quick-start.md)端口表）。
 
-### 1. 构建 JAR
+### 3. 准备应用配置
+
+机制：根目录 `config.yaml`（从 `config.yaml.example` 复制），由 `application.yml` 通过 `spring.config.import: optional:file:./config.yaml` 引用。**仓库没有 `application-prod.yml`，也没有任何 Spring profile**——环境差异靠不同 config.yaml 文件管理：
+
+```bash
+cp config.yaml.example /opt/raggg/config.yaml
+# 编辑：llm.api-key / embedding（ollama 或 siliconflow 二选一）/ reranker.api-key
+```
+
+密钥不要提交进仓库（config.yaml 已在 .gitignore）。
+
+### 4. 本地 Embedding（可选）
+
+```bash
+docker exec -it rag-ollama ollama pull bge-m3
+```
+
+### 5. 构建与启动
 
 ```bash
 mvn clean package -DskipTests
+
+# 生产启动（参考 watchdog.sh 的参数）
+java -Xms2g -Xmx2g -jar target/rag-demo-1.0.0-SNAPSHOT.jar
 ```
 
-### 2. 创建启动脚本
+端口由 config.yaml 的 `app.port` 决定（默认写 8080；无 config.yaml 时 application.yml 回落 8081）。数据库表由 Hibernate `ddl-auto: update` 自动建，`init.sql` 仅设置字符集，默认账号由 `DataInitializer` 创建。
 
-```bash
-#!/bin/bash
-java -jar \
-  -Xms2g -Xmx4g \
-  -Dspring.profiles.active=prod \
-  -Dserver.port=8080 \
-  rag-demo-1.0.0-SNAPSHOT.jar
-```
+### 6. systemd 托管（可选）
 
-### 3. 配置示例 (application-prod.yml)
+```ini
+# /etc/systemd/system/raggg.service
+[Unit]
+Description=RAGGG backend
+After=docker.service network.target
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://mysql:3306/ragent?useSSL=false&serverTimezone=UTC
-    username: root
-    password: ${DB_PASSWORD}
-  
-  redis:
-    host: redis
-    port: 6379
+[Service]
+WorkingDirectory=/opt/raggg        # config.yaml 必须在工作目录
+ExecStart=/usr/bin/java -Xms2g -Xmx2g -jar /opt/raggg/rag-demo-1.0.0-SNAPSHOT.jar
+Restart=always
+RestartSec=10
 
-  kafka:
-    bootstrap-servers: kafka:9092
-
-milvus:
-  uri: http://milvus:19530
-
-elasticsearch:
-  host: elasticsearch
-  port: 9200
-
-minio:
-  endpoint: http://minio:9000
-  access-key: minioadmin
-  secret-key: minioadmin
-
-jwt:
-  secret: your-256-bit-secret-key-here-must-be-long-enough
-  expiration: 86400000
+[Install]
+WantedBy=multi-user.target
 ```
 
 ---
 
-## Nginx 配置
+## Nginx 反向代理（如需对外）
 
 ```nginx
 upstream rag_backend {
     server 127.0.0.1:8080;
-    server 127.0.0.1:8081;
-    server 127.0.0.1:8082;
 }
 
 server {
@@ -221,87 +112,78 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 流式对话（NDJSON）必须关闭缓冲
+        proxy_buffering off;
+        proxy_read_timeout 300s;   # 与后端 ResponseBodyEmitter 的 300s 对齐
     }
 }
 ```
 
 ---
 
-## 性能调优
+## 水平扩容注意事项（重要）
 
-### JVM 参数
+多实例部署前必须了解的当前限制（详见 [known-gaps](../known-gaps.md)）：
 
-| 参数 | 推荐值 | 说明 |
-|------|--------|------|
-| -Xms | 2g | 初始堆大小 |
-| -Xmx | 4g | 最大堆大小 |
-| -XX:+UseG1GC | - | 使用 G1 垃圾回收器 |
+| 组件 | 现状 | 多实例影响 |
+|---|---|---|
+| Kafka 流水线 | 三个独立 consumer group | ✅ 天然支持多实例分摊（分区数当前为 3） |
+| 会话记忆写锁 | JVM 内 `synchronized`（会话级） | ⚠️ 跨实例无互斥，同会话并发写有竞态风险 |
+| ReAct ActionCache / LoopDetector | 进程内单例 | ⚠️ 状态不共享，指纹历史/缓存跨实例失效 |
+| Milvus 集合 init | 启动时检查维度，不匹配则 drop 重建 | ⚠️ 实例间 embedding 配置必须一致，否则互相触发重建 |
+| SSE/流式 | 连接绑定单实例 | 需 sticky session 或网关层适配 |
 
-### Kafka 分区
+---
 
-```yaml
-# 推荐配置
-partitions: 6
-replication-factor: 3
-```
+## 性能基线与调优
 
-### Milvus 索引
+实测基线（单机，详见 [testing/ 各报告](../testing/)）：
 
-```yaml
-index_type: HNSW
-metric_type: COSINE
-params:
-  M: 16
-  efConstruction: 200
-```
+| 指标 | 实测值 | 瓶颈定位 |
+|---|---|---|
+| 摄入吞吐 | 16.5 docs/min（50×64KB） | 95.1% 耗时在本地 Ollama embedding 单流（~20 chunks/s） |
+| 检索延迟 | 0.192s（PubMedQA，hybrid topK=10） | 非瓶颈 |
+| 端到端上传 | P95 ~3.0s（批量 embedding 后） | 其中 ~2.8s 是 Kafka AckMode.BATCH 的 poll 等待 |
+
+调优抓手（按性价比）：
+
+1. **embedding 换 SiliconFlow API 或提高 Ollama 并行度**——摄入吞吐 5-20 倍空间（Kafka 报告结论）；
+2. Kafka topic 从 1 分区扩到 3（`KafkaConfig` 中 `documentUploadTopic` 等）+ `KafkaInfrastructureConfig` 并发度对齐；
+3. JVM：`-Xms2g -Xmx2g -XX:+UseG1GC`（JDK 17 默认 G1）；
+4. Milvus 索引已是 HNSW（M=16, efConstruction=200, **metric=IP**, 查询 ef=128）——注意当前 metric 是内积不是余弦，bge-m3 归一化向量下两者等价。
 
 ---
 
 ## 监控
 
-### Prometheus 配置
+监控栈随 compose 一起部署，无需手工配置：
 
-```yaml
-scrape_configs:
-  - job_name: 'rag-demo'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['localhost:8080']
-```
-
-### Grafana Dashboard
-
-推荐监控指标：
-- JVM 内存使用
-- HTTP 请求延迟
-- Kafka 消费 lag
-- Milvus 查询 QPS
+- **Prometheus**（`monitoring/prometheus/prometheus.yml`）：抓取后端 `/actuator/prometheus`（5s 间隔，`host.docker.internal:8080`——Linux 部署需确认该域名可解析，否则改为宿主 IP）+ Pushgateway；
+- **Grafana**（`:23000`，admin/admin123）：provisioning 自动加载 `monitoring/grafana/dashboards/rag-pipeline.json`（20 面板：上传链路 P50-P99、pipeline 各阶段延迟、逐 chunk 操作 P95、吞吐、in-flight 并发）；
+- 覆盖范围目前**仅文档流水线**，检索/LLM/记忆面板是待办（见 known-gaps）。
 
 ---
 
 ## 备份策略
 
-### MySQL
-
 ```bash
-# 每日备份
-mysqldump -u root -p ragent > backup_$(date +%Y%m%d).sql
-```
+# MySQL（库名 rag_system）
+mysqldump -h 127.0.0.1 -P 23306 -u root -p rag_system > backup_$(date +%Y%m%d).sql
 
-### Redis
+# MinIO 文档产物（原始文件/parsed.txt/chunks.json）
+mc mirror --overwrite myminio/rag-documents /backup/minio/
 
-```bash
-# RDB 持久化备份
-redis-cli SAVE
+# Milvus 向量与 ES 索引可由「MySQL 元数据 + MinIO 原始文件」全量重建（走重灌流水线）
 ```
 
 ---
 
 ## 下一步
 
-- 查看 [快速入门](./01-quick-start.md) 了解开发环境
-- 查看 [架构文档](../architecture/01-architecture-overview.md) 了解系统设计
+- [快速入门](./01-quick-start.md)
+- [架构总览](../architecture/01-architecture-overview.md)
+- [实现差距清单](../known-gaps.md)
 
 ---
 
-*最后更新: 2026-04-10*
+*最后更新: 2026-09-24*

@@ -2,6 +2,8 @@
 
 ## 项目描述
 
+> **⚠️ 状态说明（2026-09-24 对账）**：本文各"核心贡献"实现程度不一——Kafka 流水线/混合检索/会话记忆/RAGAS 与代码高度一致；**分布式限流已实现但全工程零调用（未生效）**；RAGAS 自动触发不存在；重排主力已从本地 Bi-Encoder 换为 SiliconFlow CrossEncoder API。本系统现役能力还包括本文未覆盖的 **ReAct 推理引擎**（`react.enabled`，见 [03-react-engine.md](./03-react-engine.md)）与层级检索（SWA，目前存在实现缺陷见 [known-gaps](../known-gaps.md#swa)）。
+
 针对实验室内部非结构化文档（知识库规模5000+篇），构建的一站式RAG平台。通过打通知识库构建、多路检索召回、以及LLM动态上下文处理的全链路，并支持多轮会话处理、分层评测体系及限流等机制，以达到企业级应用标准。
 
 ---
@@ -160,7 +162,7 @@ Query → expand → hybridSearch(query, kbId, topK*2) → rerank(topK)
 
 ```java
 CompletableFuture<List<SearchResult>> milvusFuture = CompletableFuture.supplyAsync(() -> {
-    float[] queryEmbedding = embeddingService.embed(query);  // SiliconFlow BGE-M3
+    float[] queryEmbedding = embeddingService.embed(query);  // Ollama 或 SiliconFlow bge-m3（embedding.provider 切换）
     return milvusVectorStore.search(queryEmbedding, kbId, topK * 2);  // HNSW 索引
 });
 
@@ -196,9 +198,11 @@ for (int rank = 0; rank < esResults.size(); rank++) {
 
 **RRF 的好处**：不需要调优各路的权重比例，纯排名融合，简单且鲁棒。一个 chunk 只在一路出现得分 1/(60+rank)，两路都出现得分叠加，自然排到前面。
 
-### 第三步：CrossEncoder 精排
+### 第三步：重排精排
 
-`CrossEncoderReranker.rerank()` 对 RRF 融合后的候选做最终精排：
+**✅ 现役实现（2026-09）**：`SiliconFlowReranker` 调 SiliconFlow `/rerank` API（BAAI/bge-reranker-v2-m3，真 CrossEncoder），由 `retrieval.rerank.provider=siliconflow` 启用；RRF 全部候选送精排（不截断），API 失败时**静默返回原序**（无告警，是已知问题）。当前 config.yaml 即此配置。
+
+**⚠️ 回退实现**：`CrossEncoderReranker`（本地 Bi-Encoder 近似）——分别编码 query 和每个候选（N+1 次 embedding 调用），算余弦相似度排序，仅在 `provider` 切换为本地时使用：
 
 ```java
 float[] queryEmbedding = embeddingService.embed(query);
@@ -210,14 +214,12 @@ for (candidate : candidates) {
 // 按相似度降序，取 topK
 ```
 
-这里用的是 Bi-Encoder 近似方式（分别编码 query 和 doc，算余弦相似度），而非真正的 CrossEncoder（拼接 [query, doc] 后过 Transformer）。实际部署时可替换为 BAAI/bge-reranker-v2-m3 等专用重排模型。
+### 实测效果（替代早期口径）
 
-### 最终效果
-
-`Recall@10` 相比单路提升 18%，因为：
-- 向量检索擅长语义相似（理解同义表达）
-- BM25 擅长关键词精确匹配（专业术语、数字）
-- RRF 互补融合 + 重排精调 = 更高的召回率
+> 早期本文宣称"`Recall@10` 相比单路提升 18%"——**无出处无方法记录，已删除**。实测结论（见 [testing/ 各评测报告](../testing/)）：
+> - PubMedQA（英文医学）：hybrid 与 vector 的 Hit/MRR 基本持平（召回天花板效应），rerank 无增益（0/196 排序被改变，因 key 失效静默回退）；
+> - CRUD-RAG（中文新闻）：**CrossEncoder 精排有真实增益**（Hit@3 +2.6pp，代价 +0.5s/查询），纯 RRF 融合在中文新闻上不占优（hybrid vs vector Hit@5 -0.9pp）。
+> 即"混合检索 + 精排"的收益**依赖语料**，不是普适 +18%。
 
 ### 核心代码位置
 
@@ -225,7 +227,8 @@ for (candidate : candidates) {
 |------|------|
 | 混合检索 | `src/main/java/com/rag/application/retrieval/HybridRetrievalService.java` |
 | 检索编排 | `src/main/java/com/rag/application/retrieval/RetrievalApplicationService.java` |
-| 重排服务 | `src/main/java/com/rag/infrastructure/llm/CrossEncoderReranker.java` |
+| 重排（现役） | `src/main/java/com/rag/infrastructure/llm/SiliconFlowReranker.java` |
+| 重排（回退） | `src/main/java/com/rag/infrastructure/llm/CrossEncoderReranker.java` |
 | 向量检索 | `src/main/java/com/rag/infrastructure/vector/MilvusVectorStore.java` |
 | 全文检索 | `src/main/java/com/rag/infrastructure/search/ElasticsearchSearch.java` |
 
@@ -387,7 +390,7 @@ double ragasScore = 0.3 * faithfulness + 0.3 * answerRelevancy
                   + 0.2 * contextPrecision + 0.2 * contextRecall;
 ```
 
-**批量评测**：`evaluateBatch()` 接受一组 `EvaluationRequest`，对知识库更新或架构变更后自动触发批量评测，对比新旧指标变化。
+**批量评测**：`evaluateBatch()` 接受一组 `EvaluationRequest`，由 `POST /api/v1/evaluation/ragas` 手动调用（配套 `stress-test/eval_ragas_pipeline.py` 批量脚本）。**无自动触发机制**——知识库更新/定时/告警触发的自动评测未实现。实测结果：综合 0.785（n=20），见 [testing/ragas-eval-2026-09-22.md](../testing/ragas-eval-2026-09-22.md)。
 
 ### 核心代码位置
 
@@ -399,6 +402,8 @@ double ragasScore = 0.3 * faithfulness + 0.3 * answerRelevancy
 ---
 
 ## 六、分布式队列限流
+
+> **⚠️ 已实现未接入（2026-09-24 确认）**：本节算法描述与代码一致，但 `DistributedRateLimiter` **在全工程没有任何调用点**——下文"使用方式"是设计示例，不存在真实的调用方。限流当前不生效。SSE 排队推送（依赖限流队列）同样未落地。
 
 `DistributedRateLimiter` 基于 Redis Sorted Set + Lua 脚本实现滑动窗口限流。
 
@@ -471,21 +476,22 @@ if (!result.allowed()) {
 
 ## 全链路总结
 
-6 个核心贡献形成了一条完整的 RAG 全链路：
+核心贡献形成了一条完整的 RAG 全链路（含后补的 ReAct 引擎）：
 
 ```
 文档上传（异步流水线）→ 知识库构建完成
                           ↓
-用户提问 → 意图识别 → 查询改写 → 双路检索+RRF+重排 → LLM生成 → 多轮记忆
+用户提问 → 复杂度路由 → [SIMPLE] 意图识别 → 查询改写 → 双路检索+RRF+重排 → LLM生成 → 多轮记忆
+                └─[COMPLEX]→ ReAct 引擎（思考→行动→观察循环，react.enabled）
                           ↓
-                    RAGAS评测 ← 质量闭环
+                    RAGAS评测 ← 质量闭环（手动）
                    ↗
-              分布式限流 ← 系统保护
+              分布式限流 ← 系统保护（⚠️ 已实现未接线）
 ```
 
 每个环节都针对生产环境的实际问题设计：
 - **异步解耦**解决超时
-- **混合检索**提升召回
+- **混合检索**提升召回（收益依赖语料，见第三节实测口径）
 - **冷热分层**节省 Token
 - **RAGAS** 保证质量
-- **限流**保护系统稳定性
+- **限流**保护系统稳定性（⚠️ 待接线）
