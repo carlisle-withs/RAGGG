@@ -2,7 +2,7 @@
 
 > **文档性质**：全量 REST 接口参考，2026-09-24 与代码对账（19 个 Controller、60+ 端点）。
 > 运行时可访问 Knife4j 交互文档：`http://<host>:<port>/doc.html`。
-> 架构背景见 [01-architecture-overview](architecture/01-architecture-overview.md)。
+> 架构背景见 [01-architecture-overview](architecture/01-系统架构总览.md)。
 
 ## 通用约定
 
@@ -159,7 +159,7 @@
 | `POST /evaluation/evaluate` | 单条 RAGAS：`{question, answer, contexts[], groundTruth?}` → 四指标 |
 | `POST /evaluation/evaluate/batch` | 批量（stress-test/eval_ragas_pipeline.py 调用） |
 
-指标：faithfulness / answerRelevancy / contextPrecision / contextRecall + 综合（0.3/0.3/0.2/0.2 加权）；判分与生成同源模型的自评偏置见 [ragas-eval 报告](testing/ragas-eval-2026-09-22.md)。
+指标：faithfulness / answerRelevancy / contextPrecision / contextRecall + 综合（0.3/0.3/0.2/0.2 加权）；判分与生成同源模型的自评偏置见 [ragas-eval 报告](testing/RAGAS评测-2026-09-22.md)。
 
 ## 11. 灌入与调试
 
@@ -181,7 +181,7 @@
 | `POST /images/analyze` | 单图解析（结构化提取） |
 | `GET /chat/multimodal/status` | 多模态能力状态 |
 
-详见 [06-multimodal](architecture/06-multimodal.md)。
+详见 [06-multimodal](architecture/06-多模态能力.md)。
 
 ## 13. 管理端 `/admin` 🔵 ADMIN
 
@@ -224,4 +224,4 @@ curl -X POST :8080/api/v1/documents/upload -H "Authorization: Bearer $TOKEN" \
 curl ":8080/api/v1/documents?kbId=19" -H "Authorization: Bearer $TOKEN"
 ```
 
-脚本全集与用法见 [stress-test/README](../stress-test/README.md) 与 [运维手册](guides/03-operations.md)。
+脚本全集与用法见 [stress-test/README](../stress-test/README.md) 与 [运维手册](guides/03-运维手册.md)。

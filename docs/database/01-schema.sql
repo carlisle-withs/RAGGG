@@ -9,7 +9,7 @@
 --    t_knowledge_document, t_knowledge_chunk, t_conversation, t_message, t_conversation_summary,
 --    t_message_feedback, t_rag_trace_run, t_rag_trace_node, t_intent_node, t_query_term_mapping
 --    （后四张为 trace/意图树/词映射落地后激活）。
---    其余表为"有实体无读写"或"仅设计未接线"（如 t_sample_question, doc_outbox——详见 docs/known-gaps.md）。
+--    其余表为"有实体无读写"或"仅设计未接线"（如 t_sample_question, doc_outbox——详见 docs/实现差距清单.md）。
 -- 3. 层级分块 P1 增量 3 张表（t_chunk_hierarchy 等）见同目录 23-hierarchical-chunks.sql（均为未接线死表）。
 -- 4. 默认账号不依赖本脚本 INSERT（t_user 部分）——后端 DataInitializer 启动时自动创建 admin/admin123。
 

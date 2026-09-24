@@ -1,6 +1,6 @@
 # ReAct 推理引擎：设计与实现
 
-> **文档性质**：设计与实现合一的现状文档，2026-09-24 重写。引擎位于 `application/chat/react/`，由 `react.enabled` 开关控制（application.yml 默认 false，当前 config.yaml 为 true）。当日修复了四项遗留（SQL 护栏/降级回退/溯源/状态隔离），明细见 [known-gaps#react](../known-gaps.md#react)。
+> **文档性质**：设计与实现合一的现状文档，2026-09-24 重写。引擎位于 `application/chat/react/`，由 `react.enabled` 开关控制（application.yml 默认 false，当前 config.yaml 为 true）。当日修复了四项遗留（SQL 护栏/降级回退/溯源/状态隔离），明细见 [known-gaps#react](../实现差距清单.md#react)。
 
 ---
 
