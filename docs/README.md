@@ -19,10 +19,10 @@ docs/
 ├── known-gaps.md                          # ⭐ 实现差距清单（宣称 vs 实际的对账基准）
 ├── knowledge-paradigms-comparison-2026-09-24.md   # RAG / LLM Wiki / Agentic Search 三范式对比
 │
-├── architecture/                          # 架构文档（2026-09-24 对账，含实现状态标注）
-│   ├── 01-architecture-overview.md        # 系统架构总览（设计+规划混合，注意头部状态说明）
-│   ├── 02-core-components.md              # 核心模块详解（Kafka/混合检索/记忆/RAGAS/限流）
-│   └── 03-react-engine.md                 # ReAct 引擎（已实现，头部有实现差异回写）
+├── architecture/                          # 架构文档（2026-09-24 重写为现状文档，与代码一致）
+│   ├── 01-architecture-overview.md        # 系统架构总览（链路/流水线/安全/可观测/规划清单）
+│   ├── 02-core-components.md              # 七大核心模块详解（含实测数据与修复后状态）
+│   └── 03-react-engine.md                 # ReAct 引擎设计与实现（含护栏/降级/缓存机制）
 │
 ├── database/                              # 数据库文档
 │   ├── 01-schema.sql                      # 22 表完整参考 DDL（非实际建库来源，头部有说明）
@@ -58,9 +58,9 @@ docs/
 
 | 文档 | 状态 | 说明 |
 |------|------|------|
-| [01-architecture-overview](architecture/01-architecture-overview.md) | ⚠️ 设计+规划混合 | 分层架构/网关/意图/记忆/Kafka/存储/安全；认证已收紧，限流/SSE Hub/RBAC 三实体仍为未实现设计，各节已加 ✅/⚠️/🚫 标注 |
-| [02-core-components](architecture/02-core-components.md) | ⚠️ 大体准确 | 六大核心贡献详解；限流已实现未接线、重排已换代，节内有对账注记 |
-| [03-react-engine](architecture/03-react-engine.md) | ⚠️ 已实现有偏差 | ReAct 引擎设计文档；机制与代码一致，模型选型/包结构/监控三处不同步（头部已回写） |
+| [01-architecture-overview](architecture/01-architecture-overview.md) | ✅ 现状文档 | 系统架构总览：真实调用链/流水线/检索/记忆/安全/可观测/部署；未实现项集中在第十三节规划清单 |
+| [02-core-components](architecture/02-core-components.md) | ✅ 现状文档 | 七大核心模块：Kafka 流水线/统一检索管线/混合检索+SWA/记忆/ReAct/RAGAS/限流（待接入） |
+| [03-react-engine](architecture/03-react-engine.md) | ✅ 现状文档 | ReAct 设计与实现：复杂度路由/动作空间与 SQL 护栏/缓存 TTL/循环检测/降级回退 |
 
 ### 数据库文档
 
@@ -93,4 +93,4 @@ docs/
 
 ---
 
-*最后更新: 2026-09-24（全量对账：guides 重写、architecture/database 补状态标注、评测报告归入 testing/、新增 known-gaps 与三范式对比）*
+*最后更新: 2026-09-24（全量对账 + 代码修复后二次对账 + architecture 三篇重写为现状文档）*

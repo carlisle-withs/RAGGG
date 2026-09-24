@@ -155,7 +155,7 @@ POST /api/v1/chat/stream
 
 ## 下一步
 
-- [架构总览](../architecture/01-architecture-overview.md)（注意阅读其头部的"实现状态"说明）
+- [架构总览](../architecture/01-architecture-overview.md)（现状文档，含规划清单）
 - [数据库设计](../database/02-database-design.md)
 - [实现差距清单](../known-gaps.md)——哪些特性是设计而非现实
 - [部署文档](./02-deployment.md)
