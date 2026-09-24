@@ -8,7 +8,7 @@
 > | ⚠️ 有偏差 | 已实现但与本文描述有出入（见标注说明） |
 > | 🚫 未实现 | 纯设计规划，代码中不存在 |
 >
-> **与代码的主要差距速览**（逐条明细见 [known-gaps](../known-gaps.md)）：网关层（Auth 强制校验 / 限流接入 / SSE Hub）未按设计落地——当前是 `permitAll()` + 零限流调用 + 每请求独立 Emitter；RBAC 只有 `t_user.role` 单字段，无 Role/Permission 实体；自动评测触发不存在；部署端口以 `docker-compose.yml` 实际为准（23306/26379/29xxx 系列）。
+> **与代码的主要差距速览**（2026-09-24 晚间随代码修复同步更新，明细见 [known-gaps](../known-gaps.md)）：API 认证已强制（`/api/**` authenticated + admin 角色隔离）；限流器仍零调用、SSE Hub 仍不存在；RBAC 只有 `t_user.role` 单字段（无 Role/Permission 实体）；自动评测触发不存在；部署端口以 `docker-compose.yml` 实际为准（23306/26379/29xxx 系列）。
 
 ## 一、项目概述
 
@@ -114,7 +114,7 @@
 
 ### 3.1 网关层设计
 
-> **🚫 网关层整体状态**：本节四个组件（Auth 强制校验 / 限流 / 动态路由 / SSE Hub）**均未形成独立网关层**。当前现实：`SecurityConfig` 为 `anyRequest().permitAll()`，认证是"可选身份识别"（带 Bearer 头则解析用户，不带则匿名放行），KB 权限仅 `/api/v1/chat` 同步接口有手工检查（流式 `/chat/stream` 没有）；限流器已实现但零调用；SSE Hub 不存在。以下为原始设计，保留作规划参考。
+> **⚠️ 网关层整体状态**（2026-09-24 更新）：仍未形成独立网关层，但认证已收紧——`/api/**` 默认 `authenticated()`（auth/actuator/静态资源放行），`/api/v1/admin/**` 要求 ADMIN，`/chat` 与 `/chat/stream` 均有 KB 权限检查。仍缺：限流器零调用、无集中式 SSE Hub（流式为每请求独立 Emitter）。下文 Auth Gateway 的"Token 自动刷新/集中权限校验"与限流、SSE Hub 设计保留作规划参考。
 
 #### 3.1.1 认证网关 (Auth Gateway)
 
@@ -1017,7 +1017,7 @@ evaluation:
 | SSE Hub | SSE实时推送中心 | P0 | ⚠️ 以"每请求独立 Emitter"形态实现（NDJSON 流式可用，中心化 Hub 未做） |
 | 语义去重 | 基于embedding的对话去重 | P1 | 🚫 未实现（ReAct ActionCache 有嵌入相似度复用，仅覆盖 ReAct 动作） |
 | 轨迹审计 | 死循环检测与规避 | P1 | ✅ 已实现（ReAct LoopDetector 指纹检测，见 03-react-engine.md） |
-| KB动态路由 | 多知识库动态选择 | P1 | ⚠️ 部分（t_intent_node 表+前端 API 封装存在，后端 Controller 未落地） |
+| KB动态路由 | 多知识库动态选择 | P1 | ⚠️ 部分（意图树 CRUD API 已落地，检索路由消费其配置未做，2026-09-24） |
 | 置信度澄清 | 意图不明确时返回澄清 | P1 | ✅ 已实现（IntentClassifier 低置信度澄清） |
 | 检索缓存 | 查询结果缓存 | P2 | 🚫 未实现 |
 | 自动评测 | 定时/触发式评测 | P2 | 🚫 未实现（手动 API + 脚本） |

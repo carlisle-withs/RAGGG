@@ -58,7 +58,7 @@ docs/
 
 | 文档 | 状态 | 说明 |
 |------|------|------|
-| [01-architecture-overview](architecture/01-architecture-overview.md) | ⚠️ 设计+规划混合 | 分层架构/网关/意图/记忆/Kafka/存储/安全；网关层与 RBAC 为未实现设计，各节已加 ✅/⚠️/🚫 标注 |
+| [01-architecture-overview](architecture/01-architecture-overview.md) | ⚠️ 设计+规划混合 | 分层架构/网关/意图/记忆/Kafka/存储/安全；认证已收紧，限流/SSE Hub/RBAC 三实体仍为未实现设计，各节已加 ✅/⚠️/🚫 标注 |
 | [02-core-components](architecture/02-core-components.md) | ⚠️ 大体准确 | 六大核心贡献详解；限流已实现未接线、重排已换代，节内有对账注记 |
 | [03-react-engine](architecture/03-react-engine.md) | ⚠️ 已实现有偏差 | ReAct 引擎设计文档；机制与代码一致，模型选型/包结构/监控三处不同步（头部已回写） |
 

@@ -6,7 +6,7 @@
 - **字符集**: `utf8mb4`
 - **存储引擎**: InnoDB
 - **表数量**: 22 张表（另有 P1 增量 3 张，见文末"P1 增量表"）
-- **建表机制（2026-09-24 说明）**: 运行时表由 Hibernate `ddl-auto: update` 按 JPA 实体自动创建，本目录 `01-schema.sql` 为完整参考 DDL 而非实际建库来源；**仅 8 张表有 Repository 读写**（t_user / t_knowledge_base / t_knowledge_document / t_knowledge_chunk / t_conversation / t_message / t_conversation_summary / t_message_feedback），其余 14 张为"有实体无读写"或"仅设计未接线"的表，逐张状态见 [known-gaps](../known-gaps.md#database)。
+- **建表机制（2026-09-24 说明）**: 运行时表由 Hibernate `ddl-auto: update` 按 JPA 实体自动创建，本目录 `01-schema.sql` 为完整参考 DDL 而非实际建库来源；**12 张表有 Repository 读写**（2026-09-24 更新：前述 8 张 + trace 两张 + t_intent_node + t_query_term_mapping，后四张随 trace/意图树/词映射落地激活），其余 11 张为"有实体无读写"或"仅设计未接线"的表，逐张状态见 [known-gaps](../known-gaps.md#database)。
 
 ---
 

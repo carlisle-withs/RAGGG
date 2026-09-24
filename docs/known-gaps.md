@@ -76,9 +76,9 @@
 **同日新增**：`RagContextService` 检索上下文 token 预算（`retrieval.context-max-tokens:4000`，与记忆系统同口径估算，超预算按相关性截断）。
 
 <a id="database"></a>
-## 🟡 Database 死表清单（25 张表中 17 张无读写）
+## 🟡 Database 死表清单（25 张表中 11 张无读写；2026-09-24 第二批修复后更新）
 
-活表（有 Repository，8 张）：`t_user` `t_knowledge_base` `t_knowledge_document` `t_knowledge_chunk` `t_conversation` `t_message` `t_conversation_summary` `t_message_feedback`
+活表（有 Repository，12 张）：`t_user` `t_knowledge_base` `t_knowledge_document` `t_knowledge_chunk` `t_conversation` `t_message` `t_conversation_summary` `t_message_feedback` + `t_rag_trace_run` `t_rag_trace_node` `t_intent_node` `t_query_term_mapping`（后四张随 trace/意图树/词映射落地激活）
 
 | 表 | 状态 |
 |---|---|

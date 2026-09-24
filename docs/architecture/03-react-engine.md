@@ -8,7 +8,7 @@
 > | 轻量模型选型 | ⚠️ **未采用 Qwen2-1.5B 本地方案**——实际 `react.router.model=deepseek-chat`、`react.lightweight-llm=glm-5.3-flash`（智谱远程 API），router 超时 5000ms（非设计的 100ms） |
 > | 包结构 | ⚠️ ComplexityRouter 与 LocalLlmClient 均在 `application/chat/react/` 包内（非本文的 `application/chat/` 与 `infrastructure/llm/`）；实际另有 ReActReasoner（Reasoning 协议解析） |
 > | 监控指标 | 🚫 `react.*` Micrometer 指标未实现，仅有日志 |
-> | 已知实现问题 | ReAct 分支不返回 sources；降级时把执行摘要直接当答案返回；LoopDetector/ActionCache 为进程内单例（跨请求共享、无 TTL）；QUERY_DATABASE 动作直执行 LLM 生成的 SQL 无只读校验——见 [known-gaps](../known-gaps.md#react) |
+> | 已知实现问题 | ~~SQL 无只读校验 / 降级返回执行摘要 / sources 恒空 / 单例状态污染~~ **以上四项已于 2026-09-24 全部修复**（见 [known-gaps](../known-gaps.md#react)）；仍余：0.85 复核区死代码、`react.*` 监控指标未实现 |
 >
 > 本文其余内容保留为设计原理参考。
 

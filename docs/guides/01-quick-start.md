@@ -107,7 +107,7 @@ POST /api/v1/auth/login
 # → { "token": "<JWT>", "refreshToken": "...", "user": {...} }
 ```
 
-> 注意：当前 SecurityConfig 为 `anyRequest().permitAll()`，接口可匿名调用；带 `Authorization: Bearer <token>` 时启用按用户/KB 的权限判断（见 [known-gaps](../known-gaps.md#security)）。
+> 注意（2026-09-24 安全收紧后）：`/api/**` 全部要求认证——先调 login 拿 token，后续请求带 `Authorization: Bearer <token>`（前端 axios 拦截器与流式 fetch 均自动携带，401 自动跳登录页）；`/api/v1/admin/**` 另要求 ADMIN 角色。
 
 ### 知识库与文档
 
